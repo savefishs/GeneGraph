@@ -364,7 +364,6 @@ class GAug_model(nn.Module):
                  dim_feats,
                  dim_h,
                  dim_z,
-                 n_classes,
                  n_layers,
                  activation,
                  dropout,
@@ -372,7 +371,7 @@ class GAug_model(nn.Module):
                  gnnlayer_type,
                  temperature=1,
                  gae=False,
-                 jknet=False,
+                #  jknet=False,
                  alpha=1,
                  sample_type='add_sample'):
         super(GAug_model, self).__init__()
@@ -384,10 +383,10 @@ class GAug_model(nn.Module):
         # edge prediction network
         self.ep_net = VGAE(dim_feats, dim_h, dim_z, activation, gae=gae)
         # node classification network
-        if jknet:
-            self.nc_net = GNN_JK(dim_feats, dim_h, n_classes, n_layers, activation, dropout, gnnlayer_type=gnnlayer_type)
-        else:
-            self.nc_net = GNN(dim_feats, dim_h, n_classes, n_layers, activation, dropout, gnnlayer_type=gnnlayer_type)
+        # if jknet:
+        #     self.nc_net = GNN_JK(dim_feats, dim_h, n_classes, n_layers, activation, dropout, gnnlayer_type=gnnlayer_type)
+        # else:
+        self.nc_net = GNNEncoder(dim_feats, dim_h, n_layers, activation, dropout, gnnlayer_type=gnnlayer_type)
 
     def sample_adj(self, adj_logits):
         """ sample an adj from the predicted edge probabilities of ep_net """
@@ -552,6 +551,40 @@ class GNN(nn.Module):
         for layer in self.layers:
             h = layer(adj, h)
         return h
+
+class GNNEncoder(nn.Module):
+    """ GNN as node representation model """
+    def __init__(self, dim_feats, dim_h, dim_out, n_layers, activation, dropout, gnnlayer_type='gcn'):
+        super(GNNEncoder, self).__init__()
+        heads = [1] * (n_layers + 1)
+        if gnnlayer_type == 'gcn':
+            gnnlayer = GCNLayer
+        elif gnnlayer_type == 'gsage':
+            gnnlayer = SAGELayer
+        elif gnnlayer_type == 'gat':
+            gnnlayer = GATLayer
+            if dim_feats in (50, 745, 12047): # hard coding n_heads for large graphs
+                heads = [2] * n_layers + [1]
+            else:
+                heads = [8] * n_layers + [1]
+            dim_h = int(dim_h / 8)
+            dropout = 0.6
+            activation = F.elu
+
+        self.layers = nn.ModuleList()
+        # input layer
+        self.layers.append(gnnlayer(dim_feats, dim_h, heads[0], activation, 0))
+        # hidden layers
+        for i in range(n_layers - 1):
+            self.layers.append(gnnlayer(dim_h*heads[i], dim_h, heads[i+1], activation, dropout))
+        # output embedding layer
+        self.layers.append(gnnlayer(dim_h*heads[-2], dim_out, heads[-1], None, dropout))
+
+    def forward(self, adj, features):
+        h = features
+        for layer in self.layers:
+            h = layer(adj, h)
+        return h   # 返回节点 embedding (N x dim_out)
 
 
 class GNN_JK(nn.Module):
