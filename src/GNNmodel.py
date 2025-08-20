@@ -10,53 +10,7 @@ import dgl
 import dgl.function as fn
 from dgl import DGLGraph
 from sklearn.metrics import f1_score
-
-
-class GCNLayer(nn.Module):
-    def __init__(self,
-                 in_feats,
-                 out_feats,
-                 activation,
-                 dropout,
-                 bias=True):
-        super(GCNLayer, self).__init__()
-        self.weight = nn.Parameter(torch.Tensor(in_feats, out_feats))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_feats))
-        else:
-            self.bias = None
-        self.activation = activation
-        if dropout:
-            self.dropout = nn.Dropout(p=dropout)
-        else:
-            self.dropout = 0.
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
-
-    def forward(self, g, h):
-        if self.dropout:
-            h = self.dropout(h)
-        h = torch.mm(h, self.weight)
-        # normalization by square root of src degree
-        h = h * g.ndata['norm']
-        g.ndata['h'] = h
-        g.update_all(fn.copy_src(src='h', out='m'),
-                     fn.sum(msg='m', out='h'))
-        h = g.ndata.pop('h')
-        # normalization by square root of dst degree
-        h = h * g.ndata['norm']
-        # bias
-        if self.bias is not None:
-            h = h + self.bias
-        if self.activation:
-            h = self.activation(h)
-        return h
-    
+import pyro
 
 
 class VGAE(nn.Module):
@@ -68,19 +22,120 @@ class VGAE(nn.Module):
         self.gcn_mean = GCNLayer(dim_h, dim_z, 1, activation, 0, bias=False)
         self.gcn_logstd = GCNLayer(dim_h, dim_z, 1, activation, 0, bias=False)
 
+    
     def forward(self, adj, features):
-        # GCN encoder
-        hidden = self.gcn_base(adj, features)
-        self.mean = self.gcn_mean(adj, hidden)
+        """
+        adj: (N, N) or (B, N, N)
+        features: (N, F) or (B, N, F)
+        return: adj_logits (N, N) or (B, N, N)
+        """
+        hidden = self.gcn_base(adj, features)      # (B, N, H)
+        mean   = self.gcn_mean(adj, hidden)        # (B, N, Z)
         if self.gae:
-            # GAE (no sampling at bottleneck)
-            Z = self.mean
+            Z = mean
         else:
-            # VGAE
-            self.logstd = self.gcn_logstd(adj, hidden)
-            gaussian_noise = torch.randn_like(self.mean)
-            sampled_Z = gaussian_noise*torch.exp(self.logstd) + self.mean
-            Z = sampled_Z
-        # inner product decoder
-        adj_logits = Z @ Z.T
+            logstd = self.gcn_logstd(adj, hidden)  # (B, N, Z)
+            gaussian_noise = torch.randn_like(mean)
+            Z = gaussian_noise * torch.exp(logstd) + mean
+
+        adj_logits = torch.bmm(Z, Z.transpose(1, 2))  # (B, N, N)
         return adj_logits
+    
+
+
+class GNNEncoder(nn.Module):
+    """ GNN as node representation model """
+    def __init__(self, dim_feats, dim_h, dim_out, n_layers, activation, dropout, gnnlayer_type='gcn'):
+        super(GNNEncoder, self).__init__()
+        heads = [1] * (n_layers + 1)
+        if gnnlayer_type == 'gcn':
+            gnnlayer = GCNLayer
+        elif gnnlayer_type == 'gsage':
+            gnnlayer = SAGELayer
+        elif gnnlayer_type == 'gat':
+            gnnlayer = GATLayer
+            if dim_feats in (50, 745, 12047): # hard coding n_heads for large graphs
+                heads = [2] * n_layers + [1]
+            else:
+                heads = [8] * n_layers + [1]
+            dim_h = int(dim_h / 8)
+            dropout = 0.6
+            activation = F.elu
+
+        self.layers = nn.ModuleList()
+        # input layer
+        self.layers.append(gnnlayer(dim_feats, dim_h, heads[0], activation, 0))
+        # hidden layers
+        for i in range(n_layers - 1):
+            self.layers.append(gnnlayer(dim_h*heads[i], dim_h, heads[i+1], activation, dropout))
+        # output embedding layer
+        self.layers.append(gnnlayer(dim_h*heads[-2], dim_out, heads[-1], None, dropout))
+
+    def forward(self, adj, features):
+        h = features
+        for layer in self.layers:
+            h = layer(adj, h)
+        return h   # 返回节点 embedding (N x dim_out)
+    
+
+
+class GCNLayer(nn.Module):
+    """ one layer of GCN, supports batch input (B, N, N) """
+    def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
+        super(GCNLayer, self).__init__()
+        self.W = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+        self.activation = activation
+        self.dropout = nn.Dropout(p=dropout) if dropout else None
+        self.b = nn.Parameter(torch.FloatTensor(output_dim)) if bias else None
+        self.init_params()
+
+    def init_params(self):
+        """ Initialize weights with xavier uniform and biases with all zeros """
+        for param in self.parameters():
+            if param.dim() == 2:   # weight
+                nn.init.xavier_uniform_(param)
+            else:                 # bias
+                nn.init.constant_(param, 0.0)
+
+    def forward(self, adj, h):
+        """
+        adj: (N, N) or (B, N, N)
+        h:   (N, F) or (B, N, F)
+        """
+        if self.dropout is not None:
+            h = self.dropout(h)
+
+        if adj.dim() == 2:  # 单图 (N, N)
+            x = h @ self.W         # (N, F_out)
+            x = adj @ x            # (N, F_out)
+        else:  # 批量图 (B, N, N)
+            x = h @ self.W         # (B, N, F_out)
+            x = torch.bmm(adj, x)  # (B, N, F_out)
+
+        if self.b is not None:
+            x = x + self.b
+
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class RoundNoGradient(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return x.round()
+
+    @staticmethod
+    def backward(ctx, g):
+        return g
+    
+
+class CeilNoGradient(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return x.ceil()
+
+    @staticmethod
+    def backward(ctx, g):
+        return g
+    

@@ -3,13 +3,11 @@ import imp
 from pyparsing import Combine
 import torch
 import torch.nn.functional as F
-from torch import nn, optim
+from torch import layer_norm, nn, optim
 import copy
 from collections import defaultdict
 from utils import *
-from Gaug import *
-
-
+from GNNmodel import *
 
 
 class GeneGraph(torch.nn.Module):
@@ -66,7 +64,16 @@ class GeneGraph(torch.nn.Module):
         self.decoder_x1 = nn.Sequential(*copy.deepcopy(decoder))
         self.decoder_x2 = nn.Sequential(*copy.deepcopy(decoder))
 
-        
+        # drug feature complce
+        self.net = nn.Sequential(
+                nn.Linear(2048, 1024),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(1024, 1024),
+                nn.layer_norm(1024)
+            )
+
+
         # feature fusion and get new feature. 
 
         ## drug-gene predict 
@@ -134,31 +141,27 @@ class GeneGraph(torch.nn.Module):
     def adj_combine(self, edge_predicted, adj):
 
         B, N = edge_predicted.shape
-        drug_ids = torch.arange(B)
-        drug_idx_expand = drug_ids.unsqueeze(1).expand(B, N).reshape(-1)   # [B*N]
-        gene_idx_expand = torch.arange(N).unsqueeze(0).expand(B, N).reshape(-1) # [B*N]
+        
+        device = edge_predicted.device
 
-        # 上下对称（drug->gene 和 gene->drug）
-        row = torch.cat([drug_idx_expand, gene_idx_expand])
-        col = torch.cat([gene_idx_expand, drug_idx_expand])
-        values = torch.cat([edge_predicted.reshape(-1), edge_predicted.reshape(-1)])
+        gene_adj = adj.to_dense().unsqueeze(0).expand(B, N, N)
 
-        # 构造 drug-gene 稀疏矩阵
-        drug_gene_adj = torch.sparse_coo_tensor(
-            torch.stack([row, col]), values,
-            size=(N + B, N + B)
-        )
+        gene_drug = edge_predicted.unsqueeze(-1)   # (B, N, 1)
+        drug_gene = edge_predicted.unsqueeze(1)    # (B, 1, N)
 
-        # 合并 gene-gene 与 drug-gene 矩阵
-        new_adj = adj.to_dense()
-        new_adj = torch.cat([new_adj, torch.zeros(B, N)], dim=0) # 下方补药物
-        new_adj = torch.cat([new_adj, torch.zeros(N+B, B)], dim=1) # 右边补药物
-        new_adj = new_adj + drug_gene_adj.to_dense()
+    # 药物-药物对角补 0
+        drug_drug = torch.zeros(B, 1, 1, device=device)
+
+        # 拼接成 (B, N+1, N+1)
+        top = torch.cat([gene_adj, gene_drug], dim=2)      # (B, N, N+1)
+        bottom = torch.cat([drug_gene, drug_drug], dim=2)  # (B, 1, N+1)
+        new_adj = torch.cat([top, bottom], dim=1)          # (B, N+1, N+1)
 
         return new_adj
     
     def forward(self, x, features, adj):# -> tuple[Any, Any]:
         H = self.encoder_x1(x)
+        features = self.net(features)
         predice_edge = self.edge_predict(features)
         new_adj = self.adj_combine(predice_edge,adj)
         combine_adj =  self.Graph_predicit(new_adj,features)
@@ -180,8 +183,8 @@ class GeneGraph(torch.nn.Module):
         x2_pred = self.decoder_x2(new_features)
 
 
-        x_hat = self.decoder_x1(H)
-        return x_hat, x2_pred, combine_adj
+        x1_rec = self.decoder_x1(H)
+        return x1_rec, x2_pred, combine_adj
 
 
     def sample_adj(self, adj_logits):

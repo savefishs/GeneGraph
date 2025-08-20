@@ -501,23 +501,40 @@ class VGAE(nn.Module):
         self.gcn_mean = GCNLayer(dim_h, dim_z, 1, activation, 0, bias=False)
         self.gcn_logstd = GCNLayer(dim_h, dim_z, 1, activation, 0, bias=False)
 
+    # def forward(self, adj, features):
+    #     # GCN encoder
+    #     hidden = self.gcn_base(adj, features)
+    #     self.mean = self.gcn_mean(adj, hidden)
+    #     if self.gae:
+    #         # GAE (no sampling at bottleneck)
+    #         Z = self.mean
+    #     else:
+    #         # VGAE
+    #         self.logstd = self.gcn_logstd(adj, hidden)
+    #         gaussian_noise = torch.randn_like(self.mean)
+    #         sampled_Z = gaussian_noise*torch.exp(self.logstd) + self.mean
+    #         Z = sampled_Z
+    #     # inner product decoder
+    #     adj_logits = Z @ Z.T
+    #     return adj_logits
+    
     def forward(self, adj, features):
-        # GCN encoder
-        hidden = self.gcn_base(adj, features)
-        self.mean = self.gcn_mean(adj, hidden)
+        """
+        adj: (N, N) or (B, N, N)
+        features: (N, F) or (B, N, F)
+        return: adj_logits (N, N) or (B, N, N)
+        """
+        hidden = self.gcn_base(adj, features)      # (B, N, H)
+        mean   = self.gcn_mean(adj, hidden)        # (B, N, Z)
         if self.gae:
-            # GAE (no sampling at bottleneck)
-            Z = self.mean
+            Z = mean
         else:
-            # VGAE
-            self.logstd = self.gcn_logstd(adj, hidden)
-            gaussian_noise = torch.randn_like(self.mean)
-            sampled_Z = gaussian_noise*torch.exp(self.logstd) + self.mean
-            Z = sampled_Z
-        # inner product decoder
-        adj_logits = Z @ Z.T
-        return adj_logits
+            logstd = self.gcn_logstd(adj, hidden)  # (B, N, Z)
+            gaussian_noise = torch.randn_like(mean)
+            Z = gaussian_noise * torch.exp(logstd) + mean
 
+        adj_logits = torch.bmm(Z, Z.transpose(1, 2))  # (B, N, N)
+        return adj_logits
 
 class GNN(nn.Module):
     """ GNN as node classification model """
@@ -622,40 +639,81 @@ class GNN_JK(nn.Module):
         return h
 
 
+# class GCNLayer(nn.Module):
+#     """ one layer of GCN """
+#     def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
+#         super(GCNLayer, self).__init__()
+#         self.W = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+#         self.activation = activation
+#         if bias:
+#             self.b = nn.Parameter(torch.FloatTensor(output_dim))
+#         else:
+#             self.b = None
+#         if dropout:
+#             self.dropout = nn.Dropout(p=dropout)
+#         else:
+#             self.dropout = 0
+#         self.init_params()
+
+#     def init_params(self):
+#         """ Initialize weights with xavier uniform and biases with all zeros """
+#         for param in self.parameters():
+#             if len(param.size()) == 2:
+#                 nn.init.xavier_uniform_(param)
+#             else:
+#                 nn.init.constant_(param, 0.0)
+
+#     def forward(self, adj, h):
+#         if self.dropout:
+#             h = self.dropout(h)
+#         x = h @ self.W
+#         x = adj @ x
+#         if self.b is not None:
+#             x = x + self.b
+#         if self.activation:
+#             x = self.activation(x)
+#         return x
+    
 class GCNLayer(nn.Module):
-    """ one layer of GCN """
+    """ one layer of GCN, supports batch input (B, N, N) """
     def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
         super(GCNLayer, self).__init__()
         self.W = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
         self.activation = activation
-        if bias:
-            self.b = nn.Parameter(torch.FloatTensor(output_dim))
-        else:
-            self.b = None
-        if dropout:
-            self.dropout = nn.Dropout(p=dropout)
-        else:
-            self.dropout = 0
+        self.dropout = nn.Dropout(p=dropout) if dropout else None
+        self.b = nn.Parameter(torch.FloatTensor(output_dim)) if bias else None
         self.init_params()
 
     def init_params(self):
         """ Initialize weights with xavier uniform and biases with all zeros """
         for param in self.parameters():
-            if len(param.size()) == 2:
+            if param.dim() == 2:   # weight
                 nn.init.xavier_uniform_(param)
-            else:
+            else:                 # bias
                 nn.init.constant_(param, 0.0)
 
     def forward(self, adj, h):
-        if self.dropout:
+        """
+        adj: (N, N) or (B, N, N)
+        h:   (N, F) or (B, N, F)
+        """
+        if self.dropout is not None:
             h = self.dropout(h)
-        x = h @ self.W
-        x = adj @ x
+
+        if adj.dim() == 2:  # 单图 (N, N)
+            x = h @ self.W         # (N, F_out)
+            x = adj @ x            # (N, F_out)
+        else:  # 批量图 (B, N, N)
+            x = h @ self.W         # (B, N, F_out)
+            x = torch.bmm(adj, x)  # (B, N, F_out)
+
         if self.b is not None:
             x = x + self.b
+
         if self.activation:
             x = self.activation(x)
         return x
+
 
 
 class SAGELayer(nn.Module):
@@ -806,7 +864,12 @@ def scipysp_to_pytorchsp(sp_mx):
     coords = np.vstack((sp_mx.row, sp_mx.col)).transpose()
     values = sp_mx.data
     shape = sp_mx.shape
-    pyt_sp_mx = torch.sparse.FloatTensor(torch.LongTensor(coords.T),
-                                         torch.FloatTensor(values),
-                                         torch.Size(shape))
+    # pyt_sp_mx = torch.sparse.FloatTensor(torch.LongTensor(coords.T),
+    #                                      torch.FloatTensor(values),
+    #                                      torch.Size(shape))
+    pyt_sp_mx = torch.sparse_coo_tensor(
+    indices=torch.LongTensor(coords.T),
+    values=torch.FloatTensor(values),
+    size=shape
+)
     return pyt_sp_mx
