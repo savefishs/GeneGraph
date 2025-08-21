@@ -1,6 +1,7 @@
 import gc
 import math
 import time
+from xml.dom import HierarchyRequestErr
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -30,16 +31,23 @@ class VGAE(nn.Module):
         return: adj_logits (N, N) or (B, N, N)
         """
         hidden = self.gcn_base(adj, features)      # (B, N, H)
+        hidden = torch.tanh(hidden)
         mean   = self.gcn_mean(adj, hidden)        # (B, N, Z)
+        print(mean[1,1])
         if self.gae:
             Z = mean
         else:
             logstd = self.gcn_logstd(adj, hidden)  # (B, N, Z)
+            logstd = torch.clamp(logstd, min=-10, max=10)
+
+            print(logstd[1,1])
+            
             gaussian_noise = torch.randn_like(mean)
             Z = gaussian_noise * torch.exp(logstd) + mean
 
         adj_logits = torch.bmm(Z, Z.transpose(1, 2))  # (B, N, N)
-        return adj_logits
+        adj_prob = torch.sigmoid(adj_logits)
+        return adj_prob
     
 
 

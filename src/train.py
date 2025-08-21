@@ -1,5 +1,5 @@
 from mimetypes import init
-from networkx import adj_matrix
+# from networkx import adj_matrix
 from numpy import argsort
 from dataloader import GeneGraphDataset
 import scipy.sparse as sp
@@ -15,7 +15,8 @@ warnings.filterwarnings('ignore')
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Arguments for training Gene Graph")
-    parser.add_argument("--data_path", type=str)
+    parser.add_argument("--data_path", type=str,default='../data/LINCS2020/data_example/processed_data_id.h5')
+    parser.add_argument("--save_path", type=str,default='../result/test/')
     parser.add_argument("--molecule_path", type=str)
 
     parser.add_argument("--dev", type=str, default='cuda:0')
@@ -82,9 +83,9 @@ def train_genegraph(args):
     setup_seed(random_seed)
     dev = torch.device(args.dev if torch.cuda.is_available() else 'cpu')
     data = load_from_HDF(args.data_path)
-    adj_matrix = sp.load_npz("topk_gene_similarity.npz")
+    adj_matrix = sp.load_npz("/root/myproject/KnowledgeGraphEmbedding-master/data/DrugBank/S0/topk_gene_similarity.npz")
     adj_torch = scipysp_to_pytorchsp(adj_matrix)
-
+    adj_torch = adj_torch.to_dense()
     # hyprparm
     local_out ="/root/myproject/GeneGraph/result/"
     n_epochs = args.n_epochs
@@ -98,7 +99,7 @@ def train_genegraph(args):
     beta = args.beta
     dropout = args.dropout
     weight_decay = args.weight_decay
-    save_model = args.save_model
+    # save_model = args.save_model
 
     # data 
 
@@ -148,14 +149,14 @@ def train_genegraph(args):
 
     # model  
     ## init model
-    model = GeneGraph(n_genes= 978, n_latent=n_latent, n_en_hidden=[1024],n_de_hidden=[1024], features_dim=1024,features_embed_dim=1024,
+    model = GeneGraph(n_genes= 978,n_embedd=1024, n_latent=n_latent, n_en_hidden=[1024],n_de_hidden=[1024], features_dim=1024,features_embed_dim=1024,
                       init_w=True, beta=beta, device=dev, dropout=dropout,
                             path_model=local_out, random_seed=random_seed
                       )
     ## load_state
 
 
-    engine_model = GeneGraphEngine(model=model)
+    engine_model = GeneGraphEngine(model=model,device=dev)
 
     ## trainning
     learning_rate = args.learning_rate
@@ -167,29 +168,25 @@ def train_genegraph(args):
     best_value = np.inf
     best_epoch = 0
     for epoch in range(n_epochs):
-        log = engine_model.train_epoch(train_loader, adj_matrix, adj_torch)
-        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, adj, loss_item)
+        log = engine_model.train_epoch(train_loader, optimizer, adj_torch)
+        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, adj_torch, loss_item)
+        print("train_loss",log)
         
          
         test_loss = test_dict['loss']
+        print("test_loss",test_loss)
 
         if test_loss < best_value:
             best_value = test_loss
             best_epoch = epoch
-            if save_model:
-                torch.save(local_out + 'best_model.pt')
+            # if save_model:
+            #     torch.save(local_out + 'best_model.pt')
     
 
     ## evaling
     test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, adj_torch, loss_item)
 
     
-
-
-
-
-
-
 
 
 
