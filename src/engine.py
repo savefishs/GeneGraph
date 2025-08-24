@@ -13,26 +13,31 @@ class GeneGraphEngine:
         self.dev = device
 
 
-    def loss(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj ):
-        
-        mse_x1 = F.mse_loss(x1_rec, x1_train, reduction="mean")
-        mse_x2 = F.mse_loss(x2_rec, x2_train, reduction="mean")
+    def loss(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj, epoch ):
+        if epoch <100 :    
+            loss_type = "mean"
+        else:
+            loss_type ="sum"
+        mse_x1 = F.mse_loss(x1_rec, x1_train, reduction=loss_type)
+        mse_x2 = F.mse_loss(x2_rec, x2_train, reduction=loss_type)
         # print(x2_pred.min(), x2_pred.max(), x2_train.min(), x2_train.max())
-        mse_pert = F.mse_loss(x2_pred - x1_train, x2_train - x1_train, reduction="mean")
+        mse_pert = F.mse_loss(x2_pred - x1_train, x2_train - x1_train, reduction=loss_type)
 
         pred_adj_sub = pred_adj[:, :978, :978] if pred_adj.dim() == 3 else pred_adj[:978, :978]
         ori_adj_sub  = ori_adj[:, :978, :978]  if ori_adj.dim() == 3 else ori_adj[:978, :978]
 
         # 计算图差异损失
-        adj_loss = F.mse_loss(pred_adj_sub, ori_adj_sub, reduction="mean")
+        # print(pred_adj_sub.device,ori_adj_sub.device)
+        adj_loss = F.mse_loss(pred_adj_sub, ori_adj_sub, reduction='mean')
 
         # adj_loss = 
         return mse_x1 + mse_x2 +  mse_pert + adj_loss, \
                 mse_x1, mse_x2, mse_pert ,adj_loss
 
-    def train_epoch(self, train_loader,optimizer, adj):
+    def train_epoch(self, train_loader,optimizer, adj, epoch):
         self.model.train()
         total_loss = 0
+        train_size = 0
         for x1_train, x2_train, features, mol_id, cid, sig in tqdm(train_loader):
             # 假设 batch = (drug_fp, gene_idx, labels)
             x1_train = x1_train.to(self.dev)
@@ -40,6 +45,7 @@ class GeneGraphEngine:
             features = features.to(self.dev)
             if x1_train.shape[0] == 1:
                     continue
+            train_size += x1_train.shape[0]
             optimizer.zero_grad()
             x1_rec, x2_pred, combine_adj = self.model(x1_train, features,adj)  # forward
             x2_mid = self.model.Encoder_x2(x2_train)
@@ -50,18 +56,17 @@ class GeneGraphEngine:
             assert not torch.isnan(x2_train).any(), "x2_train contains NaN"
             assert not torch.isnan(x2_rec).any(), "x2_rec contains NaN"
             assert not torch.isnan(x2_pred).any(), "x2_pred contains NaN"
-            loss,_1, _2, _3 = self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj,adj)
-            print(loss,_1,_2,_3)
+            loss,_1, _2, _3, _4 = self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj,adj, epoch)
+            # print(loss,_1,_2,_3,_4)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()  
-            break
 
-        return total_loss / len(train_loader)
+        return total_loss / train_size
     
 
     @torch.no_grad()
-    def test(self, test_loader, adj, loss_item, metrics_func=None):
+    def test(self, test_loader, adj, loss_item, epoch, metrics_func=None,):
         test_dict = defaultdict(float)
         metrics_dict_all = defaultdict(float)
         metrics_dict_all_ls = defaultdict(list)
@@ -82,7 +87,7 @@ class GeneGraphEngine:
             x2_mid = self.model.Encoder_x2(x2_train)
             x2_rec = self.model.Decoder_x2(x2_mid)
             
-            loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj,adj)
+            loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, epoch)
             if loss_item != None:
                     for idx, k in enumerate(loss_item):
                         test_dict[k] += loss_ls[idx].item()

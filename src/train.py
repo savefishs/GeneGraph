@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument("--data_path", type=str,default='../data/LINCS2020/data_example/processed_data_id.h5')
     parser.add_argument("--save_path", type=str,default='../result/test/')
     parser.add_argument("--molecule_path", type=str)
-
+    parser.add_argument("--save_model",action='store_true')
     parser.add_argument("--dev", type=str, default='cuda:0')
     parser.add_argument("--seed", type=int, default=364039)
     parser.add_argument("--molecule_feature", type=str, default='KPGT', help='molecule_feature(KPGT, ECFP4)')
@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--split_data_type", type=str, default='smiles_split', help='split_data_type(random_split, smiles_split, cell_split)')
     parser.add_argument("--train_cell_count", type=str, default='None', help='if cell_split, train_cell_count=10,50,all, else None')
 
-    parser.add_argument("--n_epochs", type=int, default=300)
+    parser.add_argument("--n_epochs", type=int, default=500)
     parser.add_argument("--n_latent", type=int, default=100)
     parser.add_argument("--molecule_feature_embed_dim", nargs='+', type=int, default=[400])
     parser.add_argument("--batch_size", type=int, default=64)
@@ -85,9 +85,9 @@ def train_genegraph(args):
     data = load_from_HDF(args.data_path)
     adj_matrix = sp.load_npz("/root/myproject/KnowledgeGraphEmbedding-master/data/DrugBank/S0/topk_gene_similarity.npz")
     adj_torch = scipysp_to_pytorchsp(adj_matrix)
-    adj_torch = adj_torch.to_dense()
+    adj_torch = adj_torch.to_dense().to(dev)
     # hyprparm
-    local_out ="/root/myproject/GeneGraph/result/"
+    local_out ="/root/myproject/GeneGraph/result/test"
     n_epochs = args.n_epochs
     n_latent = args.n_latent
     split_type = args.split_data_type
@@ -99,7 +99,7 @@ def train_genegraph(args):
     beta = args.beta
     dropout = args.dropout
     weight_decay = args.weight_decay
-    # save_model = args.save_model
+    save_model = args.save_model
 
     # data 
 
@@ -163,24 +163,33 @@ def train_genegraph(args):
     optimizer = torch.optim.Adam( model.parameters(),lr = learning_rate,
         weight_decay=weight_decay
         )
-    loss_item = ['loss', 'mse_x1', 'mse_x2', 'mse_pert']
+    loss_item = ['loss', 'mse_x1', 'mse_x2', 'mse_pert',"mse_adj"]
 
     best_value = np.inf
     best_epoch = 0
     for epoch in range(n_epochs):
-        log = engine_model.train_epoch(train_loader, optimizer, adj_torch)
-        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, adj_torch, loss_item)
-        print("train_loss",log)
+        log = engine_model.train_epoch(train_loader, optimizer, adj_torch,epoch)
+        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, adj_torch, loss_item, epoch)
+       
         
          
         test_loss = test_dict['loss']
-        print("test_loss",test_loss)
+        
+        print(f"Epoch {epoch+1}/{n_epochs}")
+    
+        r_str = f"Train: loss={log:.4f}  Valid: loss={test_loss:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, mse_adj={test_dict['mse_adj']:.4f}"
+
+        print(r_str)
+        log_file_path = "/root/myproject/GeneGraph/result/test/train_log.txt"
+
+        with open(log_file_path, "a") as f:
+                f.write(r_str + "\n")
 
         if test_loss < best_value:
             best_value = test_loss
             best_epoch = epoch
-            # if save_model:
-            #     torch.save(local_out + 'best_model.pt')
+            if save_model:
+                torch.save(model, os.path.join(local_out, "best_model.pt"))
     
 
     ## evaling

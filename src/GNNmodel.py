@@ -33,14 +33,14 @@ class VGAE(nn.Module):
         hidden = self.gcn_base(adj, features)      # (B, N, H)
         hidden = torch.tanh(hidden)
         mean   = self.gcn_mean(adj, hidden)        # (B, N, Z)
-        print(mean[1,1])
+        # print(mean[1,1])
         if self.gae:
             Z = mean
         else:
             logstd = self.gcn_logstd(adj, hidden)  # (B, N, Z)
             logstd = torch.clamp(logstd, min=-10, max=10)
 
-            print(logstd[1,1])
+            # print(logstd[1,1])
             
             gaussian_noise = torch.randn_like(mean)
             Z = gaussian_noise * torch.exp(logstd) + mean
