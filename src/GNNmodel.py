@@ -138,6 +138,112 @@ class RoundNoGradient(torch.autograd.Function):
         return g
     
 
+class SAGELayer(nn.Module):
+    """ one layer of GraphSAGE with GCN aggregator, supports batch input (B, N, N) """
+    def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
+        super(SAGELayer, self).__init__()
+        self.linear_neigh = nn.Linear(input_dim, output_dim, bias=bias)
+        self.activation = activation
+        self.dropout = nn.Dropout(p=dropout) if dropout else None
+        self.init_params()
+
+    def init_params(self):
+        """ Initialize weights with xavier uniform and biases with all zeros """
+        for param in self.parameters():
+            if param.dim() == 2:   # weight
+                nn.init.xavier_uniform_(param)
+            else:                 # bias
+                nn.init.constant_(param, 0.0)
+
+    def forward(self, adj, h):
+        """
+        adj: (N, N) or (B, N, N)
+        h:   (N, F) or (B, N, F)
+        """
+        if self.dropout:
+            h = self.dropout(h)
+
+        if adj.dim() == 2:  # 单图
+            x = adj @ h                  # (N, F)
+            x = self.linear_neigh(x)     # (N, F_out)
+        else:  # 批量
+            x = torch.bmm(adj, h)        # (B, N, F)
+            x = self.linear_neigh(x)     # (B, N, F_out)
+
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+class GATLayer(nn.Module):
+    """ one layer of GAT, supports batch input (B, N, N) """
+    def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
+        super(GATLayer, self).__init__()
+        self.W = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+        self.activation = activation
+        self.n_heads = n_heads
+        self.attn_l = nn.Linear(output_dim, n_heads, bias=False)
+        self.attn_r = nn.Linear(output_dim, n_heads, bias=False)
+        self.attn_drop = nn.Dropout(p=0.6)
+        self.dropout = nn.Dropout(p=dropout) if dropout else None
+        self.b = nn.Parameter(torch.FloatTensor(output_dim)) if bias else None
+        self.init_params()
+
+    def init_params(self):
+        """ Initialize weights with xavier uniform and biases with all zeros """
+        for param in self.parameters():
+            if param.dim() == 2:   # weight
+                nn.init.xavier_uniform_(param)
+            else:                 # bias
+                nn.init.constant_(param, 0.0)
+
+    def forward(self, adj, h):
+        """
+        adj: (N, N) or (B, N, N)
+        h:   (N, F) or (B, N, F)
+        """
+        if self.dropout:
+            h = self.dropout(h)
+
+        # (B, N, F_out)
+        if h.dim() == 2:   # 单图 (N, F)
+            h = h.unsqueeze(0)    # 变成 (1, N, F)
+            adj = adj.unsqueeze(0)
+        B, N, _ = h.size()
+
+        x = torch.matmul(h, self.W)  # (B, N, F_out)
+
+        # 注意力计算
+        el = self.attn_l(x)  # (B, N, n_heads)
+        er = self.attn_r(x)  # (B, N, n_heads)
+
+        # 广播相加得到 (B, N, N, n_heads)
+        attn = el.unsqueeze(2) + er.unsqueeze(1)
+        attn = F.leaky_relu(attn, negative_slope=0.2)
+
+        # mask 非边
+        attn = attn.masked_fill(adj.unsqueeze(-1) == 0, float('-inf'))
+        attn = F.softmax(attn, dim=2)    # (B, N, N, n_heads)
+        attn = self.attn_drop(attn)
+
+        # 消息传递
+        x = torch.einsum("bijh,bjf->bihf", attn, x)  # (B, N, n_heads, F_out)
+        if self.b is not None:
+            x = x + self.b
+
+        if self.activation:
+            x = self.activation(x)
+
+        if self.n_heads > 1:
+            x = x.reshape(B, N, -1)  # 拼接 heads
+        else:
+            x = x.squeeze(2)  # (B, N, F_out)
+
+        if B == 1:  # 如果输入是单图，还原成 (N, F)
+            x = x.squeeze(0)
+
+        return x
+
+
 class CeilNoGradient(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x):

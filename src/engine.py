@@ -66,7 +66,7 @@ class GeneGraphEngine:
     
 
     @torch.no_grad()
-    def test(self, test_loader, adj, loss_item, epoch, metrics_func=None,):
+    def test(self, test_loader, adj, loss_item, epoch, metrics_func=None,share_encoder=True):
         test_dict = defaultdict(float)
         metrics_dict_all = defaultdict(float)
         metrics_dict_all_ls = defaultdict(list)
@@ -84,9 +84,13 @@ class GeneGraphEngine:
             test_size += x1_data.shape[0]
 
             x1_rec, x2_pred, combine_adj = self.model(x1_train, features,adj)  # forward
-            x2_mid = self.model.Encoder_x2(x2_train)
-            x2_rec = self.model.Decoder_x2(x2_mid)
-            
+            if share_encoder:
+
+                x2_mid = self.model.Encoder_x2(x2_train)
+                x2_rec = self.model.Decoder_x2(x2_mid)
+            else :
+                x2_mid = self.model.Encoder_x2(x2_train)
+                x2_rec = self.model.Decoder_x2(x2_mid)
             loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, epoch)
             if loss_item != None:
                     for idx, k in enumerate(loss_item):

@@ -36,14 +36,15 @@ class GeneGraph(torch.nn.Module):
 
         self.gene_embedding_x2 = nn.Parameter(torch.randn(self.n_genes, self.n_gene_embedd))
 
+        self.gate = nn.Linear(1, self.n_gene_embedd)
 
         encoder = [
             nn.Linear(self.n_gene_embedd, self.n_en_hidden),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(self.dropout),
             nn.Linear(self.n_en_hidden, self.n_gene_embedd),
-            nn.ReLU(),
         ]
+        self.ln = nn.LayerNorm(self.n_gene_embedd)
 
         # TransformerEncoder
         # encoder_layer = nn.TransformerEncoderLayer(
@@ -69,7 +70,7 @@ class GeneGraph(torch.nn.Module):
         # 包装为两个 decoder
         self.decoder_x1 = nn.Sequential(*copy.deepcopy(decoder))
         self.decoder_x2 = nn.Sequential(*copy.deepcopy(decoder))
-
+        
         # drug feature complce
         self.net = nn.Sequential(
                 nn.Linear(2304, 1024),
@@ -118,13 +119,26 @@ class GeneGraph(torch.nn.Module):
         return
 
     def Encoder_x1(self, x):
-        H = x.unsqueeze(-1) * self.gene_embedding_x1.unsqueeze(0)  
-        H = self.encoder_x1(H)
+        ## simple encoder
+        # H = x.unsqueeze(-1) * self.gene_embedding_x1.unsqueeze(0)  
+        ## gate encoder
+        gate = torch.sigmoid(self.gate(x.unsqueeze(-1)))  # (B, n_genes, embed_dim)
+        H = gate * self.gene_embedding_x1.unsqueeze(0)       # gating 控制
+        H_res = H
+        H = F.gelu(H)
+        H = F.dropout(H, p=self.dropout, training=self.training)
+        H = H + H_res
+        H = self.ln(H)
         return H
 
     def Encoder_x2(self, x):
-        H = x.unsqueeze(-1) * self.gene_embedding_x2.unsqueeze(0)  
-        H = self.encoder_x2(H)
+        gate = torch.sigmoid(self.gate(x.unsqueeze(-1)))  # (B, n_genes, embed_dim)
+        H = gate * self.gene_embedding_x2.unsqueeze(0)       # gating 控制
+        H_res = H
+        H = F.gelu(H)
+        H = F.dropout(H, p=self.dropout, training=self.training)
+        H = H + H_res
+        H = self.ln(H)
         return H
 
     def Decoder_x1(self, H):

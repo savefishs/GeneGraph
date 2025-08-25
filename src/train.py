@@ -169,6 +169,7 @@ def train_genegraph(args):
     best_epoch = 0
     for epoch in range(n_epochs):
         log = engine_model.train_epoch(train_loader, optimizer, adj_torch,epoch)
+        train_dict, train_metrics_dict, train_metricsdict_ls =engine_model.test(train_loader, adj_torch, loss_item, epoch)
         test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, adj_torch, loss_item, epoch)
        
         
@@ -177,7 +178,7 @@ def train_genegraph(args):
         
         print(f"Epoch {epoch+1}/{n_epochs}")
     
-        r_str = f"Train: loss={log:.4f}  Valid: loss={test_loss:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, mse_adj={test_dict['mse_adj']:.4f}"
+        r_str = f"Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, mse_adj={train_dict['mse_adj']:.4f}  Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, mse_adj={test_dict['mse_adj']:.4f}"
 
         print(r_str)
         log_file_path = "/root/myproject/GeneGraph/result/test/train_log.txt"
@@ -193,7 +194,7 @@ def train_genegraph(args):
     
 
     ## evaling
-    test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, adj_torch, loss_item)
+    test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, adj_torch, loss_item,epoch=500)
 
     
 
