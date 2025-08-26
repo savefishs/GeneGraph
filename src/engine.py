@@ -13,7 +13,7 @@ class GeneGraphEngine:
         self.dev = device
 
 
-    def loss(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj, epoch ):
+    def loss(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj, node_features ,epoch ):
         if epoch <100 :    
             loss_type = "mean"
         else:
@@ -22,19 +22,29 @@ class GeneGraphEngine:
         mse_x2 = F.mse_loss(x2_rec, x2_train, reduction=loss_type)
         # print(x2_pred.min(), x2_pred.max(), x2_train.min(), x2_train.max())
         mse_pert = F.mse_loss(x2_pred - x1_train, x2_train - x1_train, reduction=loss_type)
+        B, N, d = node_features.shape   # 批大小、节点数、特征维度
+
+        # 如果 ori_adj 是 [N, N]
+        ori_adj = ori_adj.unsqueeze(0)              # 变成 [1, N, N]
+        ori_adj = ori_adj.expand(B, -1, -1).contiguous()
 
         pred_adj_sub = pred_adj[:, :978, :978] if pred_adj.dim() == 3 else pred_adj[:978, :978]
         ori_adj_sub  = ori_adj[:, :978, :978]  if ori_adj.dim() == 3 else ori_adj[:978, :978]
 
         # 计算图差异损失
         # print(pred_adj_sub.device,ori_adj_sub.device)
-        adj_loss = F.mse_loss(pred_adj_sub, ori_adj_sub, reduction='mean')
+        adj_loss = F.mse_loss(pred_adj_sub, ori_adj_sub, reduction='sum')
+        # P = F.softmax(pred_adj_sub, dim=-1)
+        # Q = F.softmax(ori_adj_sub, dim=-1)
+        # L_adj_kl = batched_kl_div(P, Q)
+        # # L_adj_kl = F.kl_div(normalize_adj_soft(pred_adj_sub).log(), normalize_adj_soft(ori_adj_sub), reduction='batchmean')
+        # L_smooth = laplacian_smoothness_loss(ori_adj_sub, node_features[:,:-1])/(1024*978)
 
-        # adj_loss = 
-        return mse_x1 + mse_x2 +  mse_pert + adj_loss, \
-                mse_x1, mse_x2, mse_pert ,adj_loss
+        # adj_loss =  L_adj_kl+ L_smooth L_adj_kl,L_smooth
+        return mse_x1 + mse_x2 +  mse_pert + adj_loss,  \
+                mse_x1, mse_x2, mse_pert , adj_loss,
 
-    def train_epoch(self, train_loader,optimizer, adj, epoch):
+    def train_epoch(self, train_loader,optimizer, adj, epoch,share_encoder = True):
         self.model.train()
         total_loss = 0
         train_size = 0
@@ -47,16 +57,20 @@ class GeneGraphEngine:
                     continue
             train_size += x1_train.shape[0]
             optimizer.zero_grad()
-            x1_rec, x2_pred, combine_adj = self.model(x1_train, features,adj)  # forward
-            x2_mid = self.model.Encoder_x2(x2_train)
-            x2_rec = self.model.Decoder_x2(x2_mid)
+            x1_rec, x2_pred, combine_adj, node_features = self.model(x1_train, features,adj)  # forward
+            if share_encoder:
+                x2_mid = self.model.Encoder_x1(x2_train)
+                x2_rec = self.model.Decoder_x2(x2_mid)
+            else :
+                x2_mid = self.model.Encoder_x2(x2_train)
+                x2_rec = self.model.Decoder_x2(x2_mid)
             # print(x1_rec[1],x1_train[1])
             assert not torch.isnan(x1_train).any(), "x1_train contains NaN"
             assert not torch.isnan(x1_rec).any(), "x1_rec contains NaN"
             assert not torch.isnan(x2_train).any(), "x2_train contains NaN"
             assert not torch.isnan(x2_rec).any(), "x2_rec contains NaN"
             assert not torch.isnan(x2_pred).any(), "x2_pred contains NaN"
-            loss,_1, _2, _3, _4 = self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj,adj, epoch)
+            loss,_1, _2, _3, _4  = self.loss(x1_train, x1_rec, x2_train, x2_rec, x2_pred, combine_adj, adj, node_features, epoch)
             # print(loss,_1,_2,_3,_4)
             loss.backward()
             optimizer.step()
@@ -83,15 +97,15 @@ class GeneGraphEngine:
             sig = np.array(list(sig))
             test_size += x1_data.shape[0]
 
-            x1_rec, x2_pred, combine_adj = self.model(x1_train, features,adj)  # forward
+            x1_rec, x2_pred, combine_adj, node_features = self.model(x1_train, features,adj)  # forward
             if share_encoder:
 
-                x2_mid = self.model.Encoder_x2(x2_train)
+                x2_mid = self.model.Encoder_x1(x2_train)
                 x2_rec = self.model.Decoder_x2(x2_mid)
             else :
                 x2_mid = self.model.Encoder_x2(x2_train)
                 x2_rec = self.model.Decoder_x2(x2_mid)
-            loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, epoch)
+            loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, node_features, epoch)
             if loss_item != None:
                     for idx, k in enumerate(loss_item):
                         test_dict[k] += loss_ls[idx].item()

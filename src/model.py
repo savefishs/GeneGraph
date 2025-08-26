@@ -11,7 +11,7 @@ from GNNmodel import *
 
 
 class GeneGraph(torch.nn.Module):
-    def __init__(self, n_genes, n_embedd, n_latent, n_en_hidden, n_de_hidden, features_dim, features_embed_dim, **kwargs):
+    def __init__(self, n_genes, n_embedd, n_latent, n_en_hidden, n_de_hidden, features_dim, features_embed_dim, gene_emb_tensor, **kwargs):
         """ The parse of the GeneGraph """
         super(GeneGraph,self).__init__()
         self.n_genes = n_genes      # num of Gene
@@ -27,14 +27,15 @@ class GeneGraph(torch.nn.Module):
         self.dropout = kwargs["dropout"]
         self.init_w = kwargs['init_w']
 
-        self.sample_type = 'edge'
+        self.sample_type = 'rand'
         self.alpha=1
+        self.gene_emb_tensor = gene_emb_tensor
         
 
         # Encoder
-        self.gene_embedding_x1 = nn.Parameter(torch.randn(self.n_genes, self.n_gene_embedd))
+        self.gene_embedding_x1 = nn.Embedding(self.n_genes, self.n_gene_embedd)
 
-        self.gene_embedding_x2 = nn.Parameter(torch.randn(self.n_genes, self.n_gene_embedd))
+        self.gene_embedding_x2 = nn.Embedding(self.n_genes, self.n_gene_embedd)
 
         self.gate = nn.Linear(1, self.n_gene_embedd)
 
@@ -73,26 +74,28 @@ class GeneGraph(torch.nn.Module):
         
         # drug feature complce
         self.net = nn.Sequential(
-                nn.Linear(2304, 1024),
+                nn.Linear(2304, self.n_gene_embedd),
                 nn.ReLU(),
                 nn.Dropout(0.3),
-                nn.Linear(1024, 1024),
-                nn.LayerNorm(1024)
+                nn.Linear(self.n_gene_embedd, self.n_gene_embedd),
+                nn.LayerNorm(self.n_gene_embedd)
             )
 
 
         # feature fusion and get new feature. 
 
         ## drug-gene predict 
-        self.drug_encoder = nn.Sequential(
-            nn.Linear(1024,512),
-            nn.ReLU()
-        )
+        # self.drug_encoder = nn.Sequential(
+        #     nn.Linear(1024,512),
+        #     nn.ReLU()
+        # )
 
         self.edge_predictor = nn.Sequential(
-            nn.Linear(self.n_gene_embedd + 512, 256),
+            nn.Linear(self.n_gene_embedd * 2, 512),
             nn.ReLU(),
-            nn.Linear(256, 1)        
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1),
         )
 
         self.Graph_predicit = VGAE(self.n_gene_embedd, self.n_en_hidden,  self.n_latent, self.activation,  gae=False)    # VGAE 为边预测函数
@@ -107,6 +110,9 @@ class GeneGraph(torch.nn.Module):
 
             self.encoder_x2.apply(self._init_weights)
             self.decoder_x2.apply(self._init_weights)
+            if gene_emb_tensor is not None:
+                self.gene_embedding_x1.weight.data = gene_emb_tensor.clone()
+                self.gene_embedding_x2.weight.data = gene_emb_tensor.clone()
 
 
 
@@ -123,7 +129,7 @@ class GeneGraph(torch.nn.Module):
         # H = x.unsqueeze(-1) * self.gene_embedding_x1.unsqueeze(0)  
         ## gate encoder
         gate = torch.sigmoid(self.gate(x.unsqueeze(-1)))  # (B, n_genes, embed_dim)
-        H = gate * self.gene_embedding_x1.unsqueeze(0)       # gating 控制
+        H = gate * self.gene_embedding_x1.weight.unsqueeze(0) # gating 控制
         H_res = H
         H = F.gelu(H)
         H = F.dropout(H, p=self.dropout, training=self.training)
@@ -133,7 +139,7 @@ class GeneGraph(torch.nn.Module):
 
     def Encoder_x2(self, x):
         gate = torch.sigmoid(self.gate(x.unsqueeze(-1)))  # (B, n_genes, embed_dim)
-        H = gate * self.gene_embedding_x2.unsqueeze(0)       # gating 控制
+        H = gate * self.gene_embedding_x2.weight.unsqueeze(0)     # gating 控制
         H_res = H
         H = F.gelu(H)
         H = F.dropout(H, p=self.dropout, training=self.training)
@@ -163,29 +169,30 @@ class GeneGraph(torch.nn.Module):
         drug_fp: [B, drug_fp_dim] Morgan fingerprint
         gene_ids: [N] 要考虑的基因id (如果None就用所有基因)
         """
-        drug_emb = self.drug_encoder(drug_fp)     # [B, latent_dim]
+        # drug_emb = self.drug_encoder(drug_fp)     # [B, latent_dim]
 
            
         # 扩展药物embedding，和每个基因拼接
-        B, d = drug_emb.shape
+        B, d = drug_fp.shape
         _,N,_ =gene_emb.shape
        
-        drug_expand = drug_emb.unsqueeze(1).expand(B, N, d)  # [B, N, latent_dim]
+        drug_expand = drug_fp.unsqueeze(1).expand(B, N, d)  # [B, N, latent_dim]
 
         # gene_expand = gene_embs.unsqueeze(0).expand(B, N, -1) # [B, N, gene_emb_dim]
 
         pair = torch.cat([drug_expand, gene_emb], dim=-1) # [B, N, latent+gene_emb_dim]
 
         pred_edges = self.edge_predictor(pair).squeeze(-1) # [B, N]
-        K = 50  # 每个节点保留的边数
-        topk_vals, topk_idx = torch.topk(pred_edges.abs(), K, dim=1)
-        mask = torch.zeros_like(pred_edges)
-        mask.scatter_(1, topk_idx, 1.0)
-        pred_edges = pred_edges * mask
-        sign = pred_edges.sign()        # 保存正负方向
-        abs_vals = pred_edges.abs()
-        norm_vals = abs_vals / (abs_vals.sum(dim=1, keepdim=True) + 1e-8)  # 防止除0
-        pred_edges = norm_vals * sign
+
+        # K = 50  # 每个节点保留的边数
+        # topk_vals, topk_idx = torch.topk(pred_edges.abs(), K, dim=1)
+        # mask = torch.zeros_like(pred_edges)
+        # mask.scatter_(1, topk_idx, 1.0)
+        # pred_edges = pred_edges * mask
+        # sign = pred_edges.sign()        # 保存正负方向
+        # abs_vals = pred_edges.abs()
+        # norm_vals = abs_vals / (abs_vals.sum(dim=1, keepdim=True) + 1e-8)  # 防止除0
+        # pred_edges = norm_vals * sign
         return pred_edges  # 越大越可能有边 
     
     def adj_combine(self, edge_predicted, adj):
@@ -216,31 +223,32 @@ class GeneGraph(torch.nn.Module):
         # print(predice_edge[1])
         new_adj = self.adj_combine(predice_edge,adj)
         fusion_features = torch.cat([H,features.unsqueeze(1)], dim=1) 
-        combine_adj =  self.Graph_predicit(new_adj,fusion_features)
-        # print(combine_adj[1])
-        # print(combine_adj.shape)
-        # print(new_adj.shape)
-        if self.sample_type == 'edge':
-            adj_new = self.sample_adj_edge(combine_adj, new_adj, self.alpha)
-        elif self.sample_type == 'add_round':
-            adj_new = self.sample_adj_add_round(combine_adj, adj, self.alpha)
-        elif self.sample_type == 'rand':
-            adj_new = self.sample_adj_random(combine_adj)
-        elif self.sample_type == 'add_sample':
-            if self.alpha == 1:
-                adj_new = self.sample_adj(combine_adj)
-            else:
-                adj_new = self.sample_adj_add_bernoulli(combine_adj, adj, self.alpha)
-        new_combine_adj = self.normalize_adj(adj_new)
-        # print(adj_new[1,1])
-        # print(new_combine_adj[1,1])
-        new_features = self.GNN(new_combine_adj,fusion_features)
+        # combine_adj =  self.Graph_predicit(new_adj,fusion_features)
+
+        # if self.sample_type == 'edge':
+        #     adj_new = self.sample_adj_edge(combine_adj, new_adj, self.alpha)
+        # elif self.sample_type == 'add_round':
+        #     adj_new = self.sample_adj_add_round(combine_adj, adj, self.alpha)
+        # elif self.sample_type == 'rand':
+        #     adj_new = self.sample_adj_random(combine_adj)
+        # elif self.sample_type == 'add_sample':
+        #     if self.alpha == 1:
+        #         adj_new = self.sample_adj(combine_adj)
+        #     else:
+        #         adj_new = self.sample_adj_add_bernoulli(combine_adj, adj, self.alpha)
+        # adj_new= adj_new.to(device="cuda")
+        # new_combine_adj = self.normalize_adj(adj_new)
+        # # print(adj_new[1,1])
+        # # print(new_combine_adj[1,1])
+        # # print(new_combine_adj.device,fusion_features.device)
+        # new_features = self.GNN(new_combine_adj,fusion_features)
+        new_features = self.GNN(new_adj,fusion_features)
 
         x2_pred = self.Decoder_x2(new_features[:,:-1])
         
 
         x1_rec = self.Decoder_x1(H)
-        return x1_rec, x2_pred, combine_adj
+        return x1_rec, x2_pred, new_adj,fusion_features
 
 
     def sample_adj(self, adj_logits):

@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import sklearn
 import scipy.sparse as sp
+import torch.nn.functional as F
 import random
 import h5py
 from sklearn.model_selection import GroupKFold
@@ -379,3 +380,30 @@ def scipysp_to_pytorchsp(sp_mx):
                                          torch.FloatTensor(values),
                                          torch.Size(shape))
     return pyt_sp_mx
+
+
+def normalize_adj_soft(adj):
+    adj = adj + 1e-8  # avoid log(0)
+    return adj / adj.sum(dim=(-2, -1), keepdim=True)
+
+
+def batched_kl_div(P, Q):
+    """
+    P, Q: [B, N, N], must be normalized row-wise or via softmax
+    Returns average KL divergence over batch
+    """
+    P_log = torch.log(P + 1e-8)  # avoid log(0), shape: [B, N, N]
+    kl = F.kl_div(P_log, Q, reduction='none')  # keep full shape
+    return kl.sum(dim=(-1, -2)).mean()         # sum over N×N, then mean over batch
+
+def laplacian_smoothness_loss(A: torch.Tensor, X: torch.Tensor):
+    """
+    Batch version using vectorized operations.
+    """
+    D = torch.diag_embed(A.sum(dim=-1))     # [B, N, N]
+    L = D - A                                # [B, N, N]
+    X_t = X.transpose(1, 2)                  # [B, d, N]
+    LX = torch.bmm(L, X)                     # [B, N, d]
+    XLX = torch.bmm(X_t, LX)                 # [B, d, d]
+    trace_per_batch = XLX.diagonal(offset=0, dim1=1, dim2=2).sum(-1)  # [B]
+    return trace_per_batch.mean()
