@@ -4,6 +4,7 @@ from numpy import argsort
 from dataloader import GeneGraphDataset
 import scipy.sparse as sp
 from model import GeneGraph
+from model_VIB import  GeneGraph_VIB
 from engine import GeneGraphEngine
 from utils import *
 import logging
@@ -38,7 +39,7 @@ def parse_args():
     parser.add_argument("--train_flag", type=bool, default=False)
     parser.add_argument("--eval_metric", type=bool, default=False)
     parser.add_argument("--predict_profile", type=bool, default=False)
-
+    parser.add_argument("--model_type", type=str, default='norm')
     args = parser.parse_args()
     return args
 
@@ -87,7 +88,7 @@ def train_genegraph(args):
     adj_torch = scipysp_to_pytorchsp(adj_matrix)
     adj_torch = adj_torch.to_dense().to(dev)
     # hyprparm
-    local_out ="/root/myproject/GeneGraph/result/test"
+    local_out =f"/root/myproject/GeneGraph/result/{args.model_type}"
     n_epochs = args.n_epochs
     n_latent = args.n_latent
     split_type = args.split_data_type
@@ -185,7 +186,7 @@ def train_genegraph(args):
         r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
 
         print(r_str)
-        log_file_path = "/root/myproject/GeneGraph/result/test/train_log.txt"
+        log_file_path = f"/root/myproject/GeneGraph/result/{args.model_type}/train_log.txt"
 
         with open(log_file_path, "a") as f:
                 f.write(r_str + "\n")
