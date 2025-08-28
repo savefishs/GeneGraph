@@ -30,8 +30,8 @@ def parse_args():
     parser.add_argument("--n_epochs", type=int, default=500)
     parser.add_argument("--n_latent", type=int, default=100)
     parser.add_argument("--molecule_feature_embed_dim", nargs='+', type=int, default=[400])
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--beta", type=float, default=0.1)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
@@ -102,6 +102,15 @@ def train_genegraph(args):
     weight_decay = args.weight_decay
     save_model = args.save_model
 
+    args.init_w=True
+    args.beta=beta 
+    args.device=dev
+    args.dropout=dropout
+                            
+    args.path_model=local_out 
+    args.random_seed=random_seed
+    args.graph_skip_conn = 0.7
+    args.graph_include_self = True
     # data 
 
     if split_type in ['random_split', 'smiles_split']:
@@ -154,10 +163,13 @@ def train_genegraph(args):
     gene_emb_np = np.load("/root/myproject/GeneGraph/data/LINCS2020/gene_embedding_ordered.npy")  # shape = [num_genes, embedding_dim]
     gene_emb_tensor = torch.tensor(gene_emb_np, dtype=torch.float32)
 
-
-    model = GeneGraph(n_genes= 978,n_embedd=1000, n_latent=n_latent, n_en_hidden=[1000],n_de_hidden=[1000], features_dim=1000,features_embed_dim=1000, gene_emb_tensor = gene_emb_tensor,
-                      init_w=True, beta=beta, device=dev, dropout=dropout,
-                            path_model=local_out, random_seed=random_seed
+    if args.model_type == "norm":
+        model = GeneGraph(n_genes= 978,n_embedd=1000, n_latent=n_latent, n_en_hidden=[1000],n_de_hidden=[1000], features_dim=1000,features_embed_dim=1000, gene_emb_tensor = gene_emb_tensor,
+                      args=args
+                      )
+    else :
+        model = GeneGraph_VIB(n_genes= 978,n_embedd=1000, n_latent=n_latent, n_en_hidden=[512],n_de_hidden=[512], features_dim=1000,features_embed_dim=1000, gene_emb_tensor = gene_emb_tensor,
+                      args=args
                       )
     ## load_state
 

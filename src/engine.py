@@ -5,7 +5,7 @@ import copy
 from collections import defaultdict
 from utils import *
 from tqdm import tqdm
-
+import math
 
 class GeneGraphEngine:
     def __init__(self, model, device='cpu'):
@@ -44,6 +44,22 @@ class GeneGraphEngine:
         return mse_x1 + mse_x2 +  mse_pert + adj_loss,  \
                 mse_x1, mse_x2, mse_pert , adj_loss,
 
+    def loss_VIB(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj, x1_mu, x1_std, x2_mu, x2_std, mu, std ,epoch ):
+        # if epoch <100 :    
+        #     loss_type = "mean"
+        # else:
+        loss_type ="sum"
+        mse_x1 = F.mse_loss(x1_rec, x1_train, reduction=loss_type)
+        mse_x2 = F.mse_loss(x2_rec, x2_train, reduction=loss_type)
+        # print(x2_pred.min(), x2_pred.max(), x2_train.min(), x2_train.max())
+        mse_pert = F.mse_loss(x2_pred - x1_train, x2_train - x1_train, reduction=loss_type)
+        x1_KL_loss = -0.5 * (1 + 2 * x1_std.log() - x1_mu.pow(2) - x1_std.pow(2)).sum(1).mean().div(math.log(2))
+        x2_KL_loss = -0.5 * (1 + 2 * x2_std.log() - x2_mu.pow(2) - x2_std.pow(2)).sum(1).mean().div(math.log(2))
+        KL_loss = -0.5 * (1 + 2 * std.log() - mu.pow(2) - std.pow(2)).sum(1).mean().div(math.log(2))
+        return mse_x1 + mse_x2 +  mse_pert + x1_KL_loss+ x2_KL_loss + KL_loss,  \
+                mse_x1, mse_x2, mse_pert , x1_KL_loss, x2_KL_loss,KL_loss
+
+
     def train_epoch(self, train_loader,optimizer, adj, epoch,share_encoder = True):
         self.model.train()
         total_loss = 0
@@ -57,20 +73,20 @@ class GeneGraphEngine:
                     continue
             train_size += x1_train.shape[0]
             optimizer.zero_grad()
-            x1_rec, x2_pred, combine_adj, node_features = self.model(x1_train, features,adj)  # forward
-            if share_encoder:
-                x2_mid = self.model.Encoder_x1(x2_train)
-                x2_rec = self.model.Decoder_x2(x2_mid)
-            else :
-                x2_mid = self.model.Encoder_x2(x2_train)
-                x2_rec = self.model.Decoder_x2(x2_mid)
+            x1_rec,x2_rec, x2_pred, combine_adj, (x1_mu,x1_std), (x2_mu,x2_std),(mu,std) = self.model(x1_train, features,adj,x2_train)  # forward
+            # if share_encoder:
+            #     x2_mid = self.model.Encoder_x1(x2_train)
+            #     x2_rec = self.model.Decoder_x2(x2_mid)
+            # else :
+            #     x2_mid = self.model.Encoder_x2(x2_train)
+            #     x2_rec = self.model.Decoder_x2(x2_mid)
             # print(x1_rec[1],x1_train[1])
             assert not torch.isnan(x1_train).any(), "x1_train contains NaN"
             assert not torch.isnan(x1_rec).any(), "x1_rec contains NaN"
             assert not torch.isnan(x2_train).any(), "x2_train contains NaN"
             assert not torch.isnan(x2_rec).any(), "x2_rec contains NaN"
             assert not torch.isnan(x2_pred).any(), "x2_pred contains NaN"
-            loss,_1, _2, _3, _4  = self.loss(x1_train, x1_rec, x2_train, x2_rec, x2_pred, combine_adj, adj, node_features, epoch)
+            loss,_1, _2, _3, _4, _5, _6  = self.loss_VIB(x1_train, x1_rec, x2_train, x2_rec, x2_pred, combine_adj, adj, x1_mu, x1_std, x2_mu, x2_std, mu, std, epoch)
             # print(loss,_1,_2,_3,_4)
             loss.backward()
             optimizer.step()
@@ -97,15 +113,16 @@ class GeneGraphEngine:
             sig = np.array(list(sig))
             test_size += x1_data.shape[0]
 
-            x1_rec, x2_pred, combine_adj, node_features = self.model(x1_train, features,adj)  # forward
-            if share_encoder:
+            x1_rec,x2_rec,  x2_pred, combine_adj, (x1_mu,x1_std), (x2_mu,x2_std),(mu,std) = self.model(x1_train, features,adj, x2_train)  # forward
+            # if share_encoder:
 
-                x2_mid = self.model.Encoder_x1(x2_train)
-                x2_rec = self.model.Decoder_x2(x2_mid)
-            else :
-                x2_mid = self.model.Encoder_x2(x2_train)
-                x2_rec = self.model.Decoder_x2(x2_mid)
-            loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, node_features, epoch)
+            #     x2_mid = self.model.Encoder_x1(x2_train)
+            #     x2_rec = self.model.Decoder_x2(x2_mid)
+            # else :
+            #     x2_mid = self.model.Encoder_x2(x2_train)
+            #     x2_rec = self.model.Decoder_x2(x2_mid)
+            # loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, node_features, epoch)
+            loss_ls = self.loss_VIB(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, x1_mu, x1_std, x2_mu, x2_std, mu, std , epoch)
             if loss_item != None:
                     for idx, k in enumerate(loss_item):
                         test_dict[k] += loss_ls[idx].item()
