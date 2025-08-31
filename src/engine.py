@@ -58,6 +58,7 @@ class GeneGraphEngine:
         KL_loss = -0.5 * (1 + 2 * std.log() - mu.pow(2) - std.pow(2)).sum(1).mean().div(math.log(2))
         return mse_x1 + mse_x2 +  mse_pert + x1_KL_loss+ x2_KL_loss + KL_loss,  \
                 mse_x1, mse_x2, mse_pert , x1_KL_loss, x2_KL_loss,KL_loss
+    # 
 
 
     def train_epoch(self, train_loader,optimizer, adj, epoch,share_encoder = True):

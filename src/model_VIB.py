@@ -32,7 +32,7 @@ class GeneGraph_VIB(torch.nn.Module):
         self.graph_type = 'KNN' # "KNN" ,"epsilonNN", "prob"
         self.top_k = 50
         self.epsilon =0.3
-        self.num_pers = 16
+        self.num_pers = 8
         self.metric_type = "attention"
         self.feature_denoise = True
         self.device = "cuda"
@@ -78,11 +78,13 @@ class GeneGraph_VIB(torch.nn.Module):
         # Decoder
         decoder = nn.Sequential(
             nn.Linear(self.IB_size, self.n_de_hidden),
-            nn.Tanh(),
+            nn.BatchNorm1d(self.n_de_hidden),
+            nn.ReLU(),
             nn.Dropout(self.dropout),
             nn.Linear(self.n_de_hidden, self.n_genes),  # 映射到 N 个基因
             nn.ReLU()
         )
+
 
         # 包装为两个 decoder
         self.decoder_x1 = nn.Sequential(*copy.deepcopy(decoder))
@@ -101,18 +103,7 @@ class GeneGraph_VIB(torch.nn.Module):
         # feature fusion and get new feature. 
 
         ## drug-gene predict 
-        # self.drug_encoder = nn.Sequential(
-        #     nn.Linear(1024,512),
-        #     nn.ReLU()
-        # )
 
-        self.edge_predictor = nn.Sequential(
-            nn.Linear(self.n_gene_embedd * 2, 512),
-            nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
 
         self.graph_learner = GraphLearner(input_size=self.IB_size*4, hidden_size=self.hidden_dim,
                                           graph_type=self.graph_type, top_k=self.top_k,
@@ -122,13 +113,13 @@ class GeneGraph_VIB(torch.nn.Module):
         # self.GNN = GNNEncoder(dim_feats=self.n_gene_embedd, dim_h=self.n_en_hidden ,dim_out=self.n_gene_embedd ,n_layers=self.n_layers , activation=self.activation, dropout=0.05, gnnlayer_type=self.gnnlayer_type)
 
         if self.backbone == "GCN":
-            self.GNN = myGCN(self.args, in_dim=self.IB_size*4, out_dim=self.IB_size*2,
+            self.GNN = myGCN(self.args, in_dim=self.IB_size*2, out_dim=self.IB_size*2,
                                       hidden_dim=self.hidden_dim)
         elif self.backbone == "GIN":
-            self.GNN = myGIN(self.args, in_dim=self.IB_size*4, out_dim=self.IB_size*2,
+            self.GNN = myGIN(self.args, in_dim=self.IB_size*2, out_dim=self.IB_size*2,
                                       hidden_dim=self.hidden_dim)
         elif self.backbone == "GAT":
-            self.GNN = myGAT(self.args, in_dim=self.IB_size*4, out_dim=self.IB_size*2,
+            self.GNN = myGAT(self.args, in_dim=self.IB_size*2, out_dim=self.IB_size*2,
                                       hidden_dim=self.hidden_dim)
 
         # self.Graph_deal = GAug_model(self.n_gene_embedd, self.n_en_hidden, self.n_latent, self.n_layers, self.activation, dropout=0.05, gnnlayer_type=self.gnnlayer_type, device='GPU')
@@ -139,9 +130,9 @@ class GeneGraph_VIB(torch.nn.Module):
 
             self.encoder_x2.apply(self._init_weights)
             self.decoder_x2.apply(self._init_weights)
-            if gene_emb_tensor is not None:
-                self.gene_embedding_x1.weight.data = gene_emb_tensor.clone()
-                self.gene_embedding_x2.weight.data = gene_emb_tensor.clone()
+            # if gene_emb_tensor is not None:
+            #     self.gene_embedding_x1.weight.data = gene_emb_tensor.clone()
+            #     self.gene_embedding_x2.weight.data = gene_emb_tensor.clone()
 
 
 
@@ -207,6 +198,7 @@ class GeneGraph_VIB(torch.nn.Module):
         H = self.Encoder_x1(x1)
         features = self.net(features)
         fusion_features  = torch.cat([H, features[:, None, :].expand(-1, self.n_genes, -1)], dim=-1)
+        # fusion_features = H + features[:, None, :].expand(-1, self.n_genes, -1)
         # print(fusion_features.shape)
 
         ## X1 graph
@@ -219,7 +211,7 @@ class GeneGraph_VIB(torch.nn.Module):
         # print(new_x1_graph_embs.shape)
 
         if x2 != None:
-            H2 = self.Encoder_x1(x1)
+            H2 = self.Encoder_x2(x2)
             x2_cat = H2.view(B * self.n_genes, -1)  # [B*N, D]
             x2_batch_cat = torch.arange(B, device=H2.device).repeat_interleave(self.n_genes)  # [B*N]
             x2_graph_embs = global_mean_pool(x2_cat, x2_batch_cat)  # [B, D]
@@ -242,7 +234,8 @@ class GeneGraph_VIB(torch.nn.Module):
             ei = ei + i * self.n_genes  # shift node index per graph
             all_edge_index.append(ei)
             all_edge_attr.append(ea)
-            all_x.append(new_features[i])
+            # all_x.append(new_features[i])
+            all_x.append(H[i])
             all_batch.append(torch.full((self.n_genes,), i, dtype=torch.long, device=device))
 
         x_cat = torch.cat(all_x, dim=0)  # (B*N, F)

@@ -134,7 +134,7 @@ class myGIN(torch.nn.Module):
         self.conv1.reset_parameters()
         self.conv2.reset_parameters()
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, edge_weight=None):
         x = self.conv1(x, edge_index)
         x = self.conv2(x, edge_index)
         node_embeddings = x
@@ -198,7 +198,7 @@ class myGAT(torch.nn.Module):
         self.conv1.reset_parameters()
         self.conv2.reset_parameters()
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, edge_weight=None):
         x = self.relu(self.conv1(x, edge_index))
         x = self.conv2(x, edge_index)
 
