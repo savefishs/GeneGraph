@@ -11,7 +11,7 @@ import h5py
 from sklearn.model_selection import GroupKFold
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
+from torch_geometric.data import Data, DataLoader
 
 def setup_seed(random_seed):
     np.random.seed(random_seed)

@@ -1,0 +1,5 @@
+Epoch 1/500: Train: loss=146904.2796, mse_x1=73196.6431, mse_x2=73167.7325, mse_pert=73256.4413, adj_loss=269.9431   Valid: loss=151297.9028, mse_x1=75612.2986, mse_x2=75035.7431, mse_pert=75126.1944, adj_loss=324.9305 
+Epoch 2/500: Train: loss=144690.7865, mse_x1=72341.8921, mse_x2=71810.6796, mse_pert=71732.7425, adj_loss=269.1125   Valid: loss=149054.5417, mse_x1=74742.3750, mse_x2=73664.3056, mse_pert=73586.1111, adj_loss=323.9262 
+Epoch 3/500: Train: loss=140955.5974, mse_x1=71124.5880, mse_x2=69294.5201, mse_pert=68530.0764, adj_loss=268.2418   Valid: loss=145268.0972, mse_x1=73500.7361, mse_x2=71121.5972, mse_pert=70343.8194, adj_loss=322.8802 
+Epoch 4/500: Train: loss=134809.0680, mse_x1=69397.9118, mse_x2=64876.4714, mse_pert=62434.3374, adj_loss=267.3392   Valid: loss=139037.5556, mse_x1=71738.3056, mse_x2=66655.6667, mse_pert=64173.1458, adj_loss=321.7916 
+Epoch 5/500: Train: loss=125092.1589, mse_x1=67031.7218, mse_x2=57527.6505, mse_pert=51623.0989, adj_loss=266.3929   Valid: loss=129186.5139, mse_x1=69322.0208, mse_x2=59223.1806, mse_pert=53060.4757, adj_loss=320.6587 

@@ -5,7 +5,7 @@ from dataloader import GeneGraphDataset
 import scipy.sparse as sp
 from model import GeneGraph
 from model_VIB import  GeneGraph_VIB
-from engine import GeneGraphEngine
+from GeneGraph.src.pretrian_engine import GeneGraphEngine
 from utils import *
 import logging
 import pickle
@@ -13,6 +13,7 @@ import argparse
 import json
 import warnings
 warnings.filterwarnings('ignore')
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Arguments for training Gene Graph")
@@ -72,6 +73,8 @@ def log_metrics(mode, step, metrics):
     '''
     for metric in metrics:
         logging.info('%s %s at step %d: %f' % (mode, metric, step, metrics[metric]))
+
+
 
 def train_genegraph(args):
     # config 
@@ -153,10 +156,6 @@ def train_genegraph(args):
     valid_loader = torch.utils.data.DataLoader(dataset=valid, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4, worker_init_fn=seed_worker)
     test_loader = torch.utils.data.DataLoader(dataset=test, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4, worker_init_fn=seed_worker)
 
-
-
-
-
     # model  
     ## init model
 
@@ -214,9 +213,6 @@ def train_genegraph(args):
     test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, adj_torch, loss_item,epoch=500)
 
     
-
-
-
 
 
 if __name__ == "__main__" : 

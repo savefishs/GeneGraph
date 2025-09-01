@@ -1,3 +1,4 @@
+from locale import DAY_1
 from torch.utils.data import Dataset
 import pickle
 from utils import *
@@ -50,3 +51,28 @@ class GeneGraphDataset_screening(Dataset):
 
     def __len__(self):
         return self.mol_feature.shape[0]
+    
+
+
+class DrugCombDataset(Dataset):
+    def __init__(self, csv_path, transforms=None):
+        data = pd.read_csv(csv_path)
+        score_name = 'label'
+        score_name_drop = 'synergy_loewe'
+        self.labels = data[score_name]
+        data = data.drop(columns=score_name)
+        data = data.drop(columns=score_name_drop)
+        data = data.drop(columns='Unnamed: 0')
+        data = np.array(data)
+        self.inputs = data
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        labels = self.labels[index]
+        inputs_np = self.inputs[index]
+        inputs_tensor = torch.from_numpy(inputs_np).float()
+        return (inputs_tensor, labels)
+    
+    def __len__(self):
+        return len(self.labels.index)
+    
