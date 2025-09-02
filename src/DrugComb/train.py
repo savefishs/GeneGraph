@@ -5,7 +5,7 @@ from dataloader import GeneGraphDataset
 import scipy.sparse as sp
 from model import GeneGraph
 from model_VIB import  GeneGraph_VIB
-from pretrian_engine import GeneGraphEngine
+from GeneGraph.src.pretrain.pretrian_engine import GeneGraphEngine
 from utils import *
 import logging
 import pickle
@@ -14,10 +14,11 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Arguments for training Gene Graph")
     parser.add_argument("--data_path", type=str,default='../data/LINCS2020/data_example/processed_data_id.h5')
-    parser.add_argument("--save_path", type=str,default='../result/pretrain/')
+    parser.add_argument("--save_path", type=str,default='../result/test/')
     parser.add_argument("--molecule_path", type=str)
     parser.add_argument("--save_model",action='store_true')
     parser.add_argument("--dev", type=str, default='cuda:0')
@@ -73,6 +74,8 @@ def log_metrics(mode, step, metrics):
     for metric in metrics:
         logging.info('%s %s at step %d: %f' % (mode, metric, step, metrics[metric]))
 
+
+
 def train_genegraph(args):
     # config 
 
@@ -88,7 +91,7 @@ def train_genegraph(args):
     adj_torch = scipysp_to_pytorchsp(adj_matrix)
     adj_torch = adj_torch.to_dense().to(dev)
     # hyprparm
-    local_out =f"/root/myproject/GeneGraph/pretrain/{args.model_type}"
+    local_out =f"/root/myproject/GeneGraph/result/{args.model_type}"
     n_epochs = args.n_epochs
     n_latent = args.n_latent
     split_type = args.split_data_type
@@ -194,7 +197,7 @@ def train_genegraph(args):
         r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
 
         print(r_str)
-        log_file_path = f"/root/myproject/GeneGraph/result/pretrain/train_log.txt"
+        log_file_path = f"/root/myproject/GeneGraph/result/{args.model_type}/train_log.txt"
 
         with open(log_file_path, "a") as f:
                 f.write(r_str + "\n")

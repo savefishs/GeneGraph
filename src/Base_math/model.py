@@ -6,8 +6,8 @@ import torch.nn.functional as F
 from torch import layer_norm, nn, optim
 import copy
 from collections import defaultdict
-from utils import *
-from GNNmodel import *
+from .utils import *
+from .GNNmodel import *
 
 
 class GeneGraph(torch.nn.Module):

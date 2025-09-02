@@ -248,6 +248,11 @@ class GeneGraph_VIB(torch.nn.Module):
         return  x2_pred, new_adj,(mu,std)
 
 
+
+
+
+
+
     
 
 

@@ -8,9 +8,9 @@ from torch import layer_norm, nn, optim
 from torch.autograd import Variable
 import copy
 from collections import defaultdict
-from utils import *
-from VIB_backbone import *
-from VIB_layers import * 
+from .utils import *
+from .VIB_backbone import *
+from .VIB_layers import * 
 from torch_geometric.data import Data
 
 class GeneGraph_VIB(torch.nn.Module):

@@ -1,7 +1,7 @@
 from locale import DAY_1
 from torch.utils.data import Dataset
 import pickle
-from utils import *
+from .utils import *
 
 
 class GeneGraphDataset(Dataset):
