@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch import nn, optim
 import copy
 from collections import defaultdict
-from utils import *
+from Base_math.utils import *
 from tqdm import tqdm
 import math
 
@@ -31,7 +31,7 @@ class GeneGraphEngine:
         self.model.train()
         total_loss = 0
         train_size = 0
-        for x1_train, x2_train, features, mol_id, cid, sig in tqdm(train_loader):
+        for x1_train, features in tqdm(train_loader):
             # 假设 batch = (drug_fp, gene_idx, labels)
             x1_train = x1_train.to(self.dev)
             x2_train = x2_train.to(self.dev)

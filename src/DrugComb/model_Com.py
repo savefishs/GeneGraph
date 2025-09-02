@@ -8,9 +8,10 @@ from torch import layer_norm, nn, optim
 from torch.autograd import Variable
 import copy
 from collections import defaultdict
-from utils import *
-from VIB_backbone import *
-from VIB_layers import * 
+from Base_math.utils import *
+from Base_math.VIB_backbone import *
+from Base_math.VIB_layers import * 
+from .Graph_model import *
 
 
 class GeneGraph_VIB(torch.nn.Module):
@@ -46,6 +47,8 @@ class GeneGraph_VIB(torch.nn.Module):
         self.sample_type = 'rand'
         self.alpha=1
         self.gene_emb_tensor = gene_emb_tensor
+
+        self.output = 1
         
 
         # Encoder only X1 
@@ -76,7 +79,7 @@ class GeneGraph_VIB(torch.nn.Module):
         # Decoder
         decoder = nn.Sequential(
             nn.Linear(self.IB_size, self.n_de_hidden),
-            nn.BatchNorm1d(self.n_de_hidden),
+            # nn.BatchNorm1d(self.n_de_hidden),
             nn.ReLU(),
             nn.Dropout(self.dropout),
             nn.Linear(self.n_de_hidden, self.n_genes),  # 映射到 N 个基因
@@ -106,7 +109,7 @@ class GeneGraph_VIB(torch.nn.Module):
                                           epsilon=self.epsilon, num_pers=self.num_pers, metric_type=self.metric_type,
                                           feature_denoise=self.feature_denoise, device=None)
 
-        # self.GNN = GNNEncoder(dim_feats=self.n_gene_embedd, dim_h=self.n_en_hidden ,dim_out=self.n_gene_embedd ,n_layers=self.n_layers , activation=self.activation, dropout=0.05, gnnlayer_type=self.gnnlayer_type)
+        self.Graph_Combine = TrainableGraphFuser()
 
         if self.backbone == "GCN":
             self.GNN = myGCN(self.args, in_dim=self.IB_size*2, out_dim=self.IB_size*2,
@@ -119,6 +122,17 @@ class GeneGraph_VIB(torch.nn.Module):
                                       hidden_dim=self.hidden_dim)
 
         # self.Graph_deal = GAug_model(self.n_gene_embedd, self.n_en_hidden, self.n_latent, self.n_layers, self.activation, dropout=0.05, gnnlayer_type=self.gnnlayer_type, device='GPU')
+
+        self.predicter =nn.Sequential(
+            nn.Linear(self.n_genes,512),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(512,256),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(256,self.output)
+        )
+
 
         if self.init_w:
             self.encoder_x1.apply(self._init_weights)
@@ -201,6 +215,8 @@ class GeneGraph_VIB(torch.nn.Module):
 
         new_graph_list_1 = []
         new_graph_list_2 = []
+
+        new_graph_list = []
         for i in range(B):  
             raw_adj = to_dense_adj(edge_index)[0]
 
@@ -215,27 +231,31 @@ class GeneGraph_VIB(torch.nn.Module):
             graph_include_self=self.args.graph_include_self,
             init_adj=raw_adj)
 
+            
+
             new_edge_index_1, new_edge_attr_1 = dense_to_sparse(new_adj_1)
             new_graph_1 = Data(x=new_features_1, edge_index=new_edge_index_1, edge_attr=new_edge_attr_1)
             new_graph_list_1.append(new_graph_1)
+
 
             new_edge_index_2, new_edge_attr_2 = dense_to_sparse(new_adj_2)
             new_graph_2 = Data(x=new_features_2, edge_index=new_edge_index_2, edge_attr=new_edge_attr_2)
             new_graph_list_2.append(new_graph_2)    
 
 
+            edges_u, ew1_u, ew2_u = coalesce_union_edges(new_edge_index_1, new_edge_attr_1, new_edge_index_2, new_edge_attr_2, num_nodes=new_adj_1.size(0))
+            edges_fuse, ew_fuse = self.Graph_Combine(edges_u,ew1_u,ew2_u)
+            new_graph = Data(x=new_features_2, edge_index=edges_fuse, edge_attr=ew_fuse)
+
+            new_graph_list.append(new_graph)
+
+
 
         loader = DataLoader(new_graph_list, batch_size=len(new_graph_list))
         batch_data = next(iter(loader))
         node_embs, _ = self.GNN(batch_data.x, batch_data.edge_index ,edge_weight=batch_data.edge_attr)
-        x_cat = torch.cat(all_x, dim=0)  # (B*N, F)
-        edge_index_cat = torch.cat(all_edge_index, dim=1)
-        edge_attr_cat = torch.cat(all_edge_attr, dim=0)
-        batch_cat = torch.cat(all_batch, dim=0)
 
-        node_embs, _ = self.GNN(x_cat, edge_index_cat, edge_weight=edge_attr_cat)
-
-        graph_embs = global_mean_pool(node_embs, batch_cat)
+        graph_embs = global_mean_pool(node_embs, batch_data.batch)
         mu = graph_embs[:, :self.IB_size]
         std = F.softplus(graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
         new_graph_embs = self.reparametrize_n(mu, std, B)
@@ -243,9 +263,9 @@ class GeneGraph_VIB(torch.nn.Module):
 
         x2_pred = self.Decoder_x2(new_graph_embs)
         
+        result = self.predicter(x2_pred)
 
-
-        return  x2_pred, new_adj,(mu,std)
+        return  x2_pred, result
 
 
 

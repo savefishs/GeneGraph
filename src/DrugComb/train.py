@@ -1,12 +1,12 @@
 from mimetypes import init
 # from networkx import adj_matrix
 from numpy import argsort
-from dataloader import GeneGraphDataset
+from Base_math.dataloader import GeneGraphDataset
 import scipy.sparse as sp
-from model import GeneGraph
-from model_VIB import  GeneGraph_VIB
-from GeneGraph.src.pretrain.pretrian_engine import GeneGraphEngine
-from utils import *
+from Base_math.model import GeneGraph
+from Base_math.model_VIB import  GeneGraph_VIB
+from GeneGraph.src.pretrain.pretrain_engine import GeneGraphEngine
+from Base_math.utils import *
 import logging
 import pickle
 import argparse

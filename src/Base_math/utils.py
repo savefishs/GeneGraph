@@ -11,6 +11,8 @@ import h5py
 from sklearn.model_selection import GroupKFold
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data, DataLoader
 
 def setup_seed(random_seed):
@@ -417,3 +419,29 @@ def laplacian_smoothness_loss(A: torch.Tensor, X: torch.Tensor):
     XLX = torch.bmm(X_t, LX)                 # [B, d, d]
     trace_per_batch = XLX.diagonal(offset=0, dim1=1, dim2=2).sum(-1)  # [B]
     return trace_per_batch.mean()
+
+
+
+
+def split(data, repeat):
+    kf = KFold(n_splits=5, random_state=repeat, shuffle=True)
+    seed = 42
+    i = 1
+    for train_index , test_index in kf.split(data):
+        data_train_val = data.iloc[train_index]
+        data_test = data.iloc[test_index]
+        data_train, data_val = train_test_split(data_train_val, test_size=0.25, random_state=seed)
+        all_index = np.concatenate((data_train.index.values, data_val.index.values, data_test.index.values), axis=0)
+        all_index = np.unique(all_index)
+
+        data_train = data_train.reset_index(drop=True)
+        data_val = data_val.reset_index(drop=True)
+        data_test = data_test.reset_index(drop=True)
+        path_train = './data/repeat'+str(repeat)+'_fold'+str(i)+'_train.csv'
+        path_val = './data/repeat'+str(repeat)+'_fold'+str(i)+'_val.csv'
+        path_test = './data/repeat'+str(repeat)+'_fold'+str(i)+'_test.csv'
+        i += 1
+        print(path_train)
+        data_train.to_csv(path_train)
+        data_val.to_csv(path_val)
+        data_test.to_csv(path_test)
