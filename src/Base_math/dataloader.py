@@ -71,8 +71,10 @@ class DrugCombDataset(Dataset):
         labels = self.labels[index]
         inputs_np = self.inputs[index]
         inputs_tensor = torch.from_numpy(inputs_np).float()
-        return (inputs_tensor, labels)
+        return inputs_tensor, labels
     
     def __len__(self):
         return len(self.labels.index)
+    
+    
     

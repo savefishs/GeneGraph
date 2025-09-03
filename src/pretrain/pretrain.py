@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument("--molecule_feature_embed_dim", nargs='+', type=int, default=[400])
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument("--beta", type=float, default=0.00001)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
 
@@ -109,7 +109,7 @@ def train_genegraph(args):
                             
     args.path_model=local_out 
     args.random_seed=random_seed
-    args.graph_skip_conn = 0.7
+    args.graph_skip_conn = None
     args.graph_include_self = True
     # data 
 
@@ -177,7 +177,8 @@ def train_genegraph(args):
     optimizer = torch.optim.Adam( model.parameters(),lr = learning_rate,
         weight_decay=weight_decay
         )
-    loss_item = ['loss', 'mse_x1', 'mse_x2', 'mse_pert',"adj_loss"]
+    # loss_item = ['loss', 'mse_x1', 'mse_x2', 'mse_pert',"adj_loss"]
+    loss_item = ['loss', 'mse_x1', 'mse_x2', 'KL1',"KL2"]
 
     best_value = np.inf
     best_epoch = 0
@@ -191,7 +192,8 @@ def train_genegraph(args):
         test_loss = test_dict['loss']
         
     
-        r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
+        # r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
+        r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, KL1={train_dict['KL1']:.4f}, KL2={train_dict['KL2']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, KL1={test_dict['KL1']:.4f}, KL2={test_dict['KL2']:.4f} "
 
         print(r_str)
         log_file_path = f"/root/myproject/GeneGraph/result/pretrain/train_log.txt"

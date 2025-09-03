@@ -12,6 +12,7 @@ from Base_math.utils import *
 from Base_math.VIB_backbone import *
 from Base_math.VIB_layers import * 
 from .Graph_model import *
+from .model_TranSiGen import TranSiGen
 
 
 class GeneGraph_VIB(torch.nn.Module):
@@ -104,10 +105,9 @@ class GeneGraph_VIB(torch.nn.Module):
         ## drug-gene predict 
 
 
-        self.graph_learner = GraphLearner(input_size=self.IB_size*4, hidden_size=self.hidden_dim,
-                                          graph_type=self.graph_type, top_k=self.top_k,
-                                          epsilon=self.epsilon, num_pers=self.num_pers, metric_type=self.metric_type,
-                                          feature_denoise=self.feature_denoise, device=None)
+  
+
+        # self.TranSiGen = s
 
         self.Graph_Combine = TrainableGraphFuser()
 
@@ -228,7 +228,7 @@ class GeneGraph_VIB(torch.nn.Module):
             init_adj=raw_adj)
 
             new_features_2,new_adj_2 = self.learn_graph(node_features=fusion_features_N2,graph_skip_conn=self.args.graph_skip_conn,
-            graph_include_self=self.args.graph_include_self,
+            graph_include_self=self.args.graph_include_self, 
             init_adj=raw_adj)
 
             

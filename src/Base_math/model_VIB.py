@@ -1,6 +1,7 @@
 
 from hmac import new
 import imp
+from json import decoder
 from pyparsing import Combine
 import torch
 import torch.nn.functional as F
@@ -34,9 +35,10 @@ class GeneGraph_VIB(torch.nn.Module):
         self.epsilon =0.3
         self.num_pers = 8
         self.metric_type = "attention"
-        self.feature_denoise = True
+        self.feature_denoise = False
         self.device = "cuda"
         self.IB_size = 64
+        self.beta = 0.00001
 
         self.n_layers = 3
         self.args=args
@@ -105,7 +107,7 @@ class GeneGraph_VIB(torch.nn.Module):
         ## drug-gene predict 
 
 
-        self.graph_learner = GraphLearner(input_size=self.IB_size*4, hidden_size=self.hidden_dim,
+        self.graph_learner = GraphLearner(input_size=self.IB_size*2, hidden_size=self.hidden_dim,
                                           graph_type=self.graph_type, top_k=self.top_k,
                                           epsilon=self.epsilon, num_pers=self.num_pers, metric_type=self.metric_type,
                                           feature_denoise=self.feature_denoise, device=None)
@@ -130,9 +132,9 @@ class GeneGraph_VIB(torch.nn.Module):
 
             self.encoder_x2.apply(self._init_weights)
             self.decoder_x2.apply(self._init_weights)
-            # if gene_emb_tensor is not None:
-            #     self.gene_embedding_x1.weight.data = gene_emb_tensor.clone()
-            #     self.gene_embedding_x2.weight.data = gene_emb_tensor.clone()
+            if gene_emb_tensor is not None:
+                self.gene_embedding_x1.weight.data = gene_emb_tensor.clone()
+                self.gene_embedding_x2.weight.data = gene_emb_tensor.clone()
 
 
 
@@ -196,30 +198,73 @@ class GeneGraph_VIB(torch.nn.Module):
     def forward(self, x1, features, adj,x2=None):# -> tuple[Any, Any]:
         new_graph_list = []
         B = x1.size(0)
-        H = self.Encoder_x1(x1)
-        features = self.net(features)
-        fusion_features  = torch.cat([H, features[:, None, :].expand(-1, self.n_genes, -1)], dim=-1)
-        # fusion_features = H + features[:, None, :].expand(-1, self.n_genes, -1)
-        # print(fusion_features.shape)
+        H1 = self.Encoder_x1(x1)
+        # features = self.net(features)
+        # fusion_features  = torch.cat([H1, features[:, None, :].expand(-1, self.n_genes, -1)], dim=-1)
+        # # fusion_features = H + features[:, None, :].expand(-1, self.n_genes, -1)
+        # # print(fusion_features.shape)
 
-        ## X1 graph
-        x1_cat = H.view(B * self.n_genes, -1)  # [B*N, D]
-        x1_batch_cat = torch.arange(B, device=H.device).repeat_interleave(self.n_genes)  # [B*N]
-        x1_graph_embs = global_mean_pool(x1_cat, x1_batch_cat)  # [B, D]
-        x1_mu = x1_graph_embs[:, :self.IB_size]
-        x1_std = F.softplus(x1_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
-        new_x1_graph_embs = self.reparametrize_n(x1_mu, x1_std, B)
+        # ## X1 graph
+        # x1_cat = H1.view(B * self.n_genes, -1)  # [B*N, D]
+        # x1_batch_cat = torch.arange(B, device=H1.device).repeat_interleave(self.n_genes)  # [B*N]
+        # x1_graph_embs = global_mean_pool(x1_cat, x1_batch_cat)  # [B, D]
+        # x1_mu = x1_graph_embs[:, :self.IB_size]
+        # x1_std = F.softplus(x1_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
+        # new_x1_graph_embs = self.reparametrize_n(x1_mu, x1_std, B)
         # print(new_x1_graph_embs.shape)
 
-        if x2 != None:
-            H2 = self.Encoder_x2(x2)
-            x2_cat = H2.view(B * self.n_genes, -1)  # [B*N, D]
-            x2_batch_cat = torch.arange(B, device=H2.device).repeat_interleave(self.n_genes)  # [B*N]
-            x2_graph_embs = global_mean_pool(x2_cat, x2_batch_cat)  # [B, D]
-            x2_mu = x2_graph_embs[:, :self.IB_size]
-            x2_std = F.softplus(x2_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
-            new_x2_graph_embs = self.reparametrize_n(x2_mu, x2_std, B)
-            x2_rec = self.Decoder_x2(new_x2_graph_embs)
+        # if x2 != None:
+        H2 = self.Encoder_x2(x2)
+        #     x2_cat = H2.view(B * self.n_genes, -1)  # [B*N, D]
+        #     x2_batch_cat = torch.arange(B, device=H2.device).repeat_interleave(self.n_genes)  # [B*N]
+        #     x2_graph_embs = global_mean_pool(x2_cat, x2_batch_cat)  # [B, D]
+        #     x2_mu = x2_graph_embs[:, :self.IB_size]
+        #     x2_std = F.softplus(x2_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
+        #     new_x2_graph_embs = self.reparametrize_n(x2_mu, x2_std, B)
+        #     x2_rec = self.Decoder_x2(new_x2_graph_embs)
+
+        ## for x1， x2 graph
+
+        new_graph_list_x1 = []
+        new_graph_list_x2 = []
+        for i in range(B):
+            features_x1 = H1[i]
+            features_x2 = H2[i]
+            # graph generate
+            new_features_x1 ,x1_adj = self.learn_graph(node_features=features_x1,graph_skip_conn=self.args.graph_skip_conn,
+            graph_include_self=self.args.graph_include_self)
+            new_features_x2 ,x2_adj = self.learn_graph(node_features=features_x2,graph_skip_conn=self.args.graph_skip_conn,
+            graph_include_self=self.args.graph_include_self)
+            # add to Data
+            new_edge_index_x1, new_edge_attr_x1 = dense_to_sparse(x1_adj)
+            new_graph_x1 = Data(x=new_features_x1, edge_index=new_edge_index_x1, edge_attr=new_edge_attr_x1)
+            new_graph_list_x1.append(new_graph_x1)
+
+            new_edge_index_x2, new_edge_attr_x2 = dense_to_sparse(x2_adj)
+            new_graph_x2 = Data(x=new_features_x2, edge_index=new_edge_index_x2, edge_attr=new_edge_attr_x2 )
+            new_graph_list_x2.append(new_graph_x2)
+
+        X1_loader = DataLoader(new_graph_list_x1, batch_size=len(new_graph_list_x1))
+        X2_loader =  DataLoader(new_graph_list_x2, batch_size=len(new_graph_list_x2))
+        X1_batch = next(iter(X1_loader))
+        X2_batch = next(iter(X2_loader))
+
+        x1_node_embs, _ = self.GNN(X1_batch.x, X1_batch.edge_index ,edge_weight=X1_batch.edge_attr)
+        x2_node_embs, _ = self.GNN(X2_batch.x, X2_batch.edge_index ,edge_weight=X2_batch.edge_attr)
+        
+        x1_graph_embs = global_mean_pool(x1_node_embs, X1_batch.batch)
+        x1_mu = x1_graph_embs[:, :self.IB_size]
+        x1_std = F.softplus(x1_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
+        x1_new_graph_embs = self.reparametrize_n(x1_mu, x1_std, B)
+
+        x2_graph_embs = global_mean_pool(x2_node_embs, X2_batch.batch)
+        x2_mu = x2_graph_embs[:, :self.IB_size]
+        x2_std = F.softplus(x2_graph_embs[:, self.IB_size:] - self.IB_size, beta=1)
+        x2_new_graph_embs = self.reparametrize_n(x2_mu, x2_std, B)
+
+        x1_rec = self.Decoder_x1(x1_new_graph_embs)
+        x2_rec = self.Decoder_x2(x2_new_graph_embs)
+        return x1_rec, x2_rec, (x1_mu,x1_std), (x2_mu,x2_std)
 
         x, edge_index = adj.x.to(device), adj.edge_index.to(device)
         for i in range(B):
