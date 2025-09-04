@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import nn, optim
 import copy
 from collections import defaultdict
-from utils import *
+from Base_math.utils import *
 
 
 class TranSiGen(torch.nn.Module):
@@ -164,6 +164,8 @@ class TranSiGen(torch.nn.Module):
         x1_rec = self.decode_x1(z1)
 
         if self.feat_embed_dim != None:
+            feature_1 = features[:,0]
+            feature_2 = features[:,1]
             feat_embed = self.feat_embeddings(features)
         else:
             feat_embed = features

@@ -1,4 +1,6 @@
+from doctest import Example
 from locale import DAY_1
+import numpy
 from torch.utils.data import Dataset
 import pickle
 from .utils import *
@@ -56,7 +58,17 @@ class GeneGraphDataset_screening(Dataset):
 
 class DrugCombDataset(Dataset):
     def __init__(self, csv_path, transforms=None):
-        data = pd.read_csv(csv_path)
+      
+        drug_path ="/root/myproject/GeneGraph/data/DrugComb/Process/reg/Drug_use.csv"
+        cell_path = "/root/myproject/GeneGraph/data/DrugComb/Process/reg/Cell_use.csv"
+        # data = pd.read_csv(csv_path)
+        self.example_list = pd.read_csv(csv_path)
+        drug_list =  pd.read_csv(drug_path)
+        cell_list = pd.read_csv(cell_path)
+        
+        self.drug_list =  drug_list.to_numpy()
+        self.cell_list = cell_list.to_numpy()
+
         score_name = 'label'
         score_name_drop = 'synergy_loewe'
         self.labels = data[score_name]
@@ -70,8 +82,11 @@ class DrugCombDataset(Dataset):
     def __getitem__(self, index):
         labels = self.labels[index]
         inputs_np = self.inputs[index]
-        inputs_tensor = torch.from_numpy(inputs_np).float()
-        return inputs_tensor, labels
+        inputs_np = inputs_np.to_numpy()
+        drug_features= self.drug_list[inputs_np]
+        cell_features = self.drug_list[inputs_np]
+        # inputs_tensor = torch.from_numpy(inputs_np).float()
+        return drug_features,cell_features,labels
     
     def __len__(self):
         return len(self.labels.index)

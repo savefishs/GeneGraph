@@ -12,7 +12,7 @@ from Base_math.utils import *
 from Base_math.VIB_backbone import *
 from Base_math.VIB_layers import * 
 from .Graph_model import *
-from .model_TranSiGen import TranSiGen
+from ..TranSiGen.model_TranSiGen import TranSiGen
 
 
 class GeneGraph_VIB(torch.nn.Module):
