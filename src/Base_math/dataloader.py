@@ -57,24 +57,30 @@ class GeneGraphDataset_screening(Dataset):
 
 
 class DrugCombDataset(Dataset):
-    def __init__(self, csv_path, transforms=None):
-      
+    def __init__(self, csv_path, transforms=None,model_type = 'reg'):
+        print(csv_path)
         drug_path ="/root/myproject/GeneGraph/data/DrugComb/Process/reg/Drug_use.csv"
         cell_path = "/root/myproject/GeneGraph/data/DrugComb/Process/reg/Cell_use.csv"
-        # data = pd.read_csv(csv_path)
-        self.example_list = pd.read_csv(csv_path)
+        data = pd.read_csv(csv_path)
+        # self.example_list = pd.read_csv(csv_path)
         drug_list =  pd.read_csv(drug_path)
         cell_list = pd.read_csv(cell_path)
         
         self.drug_list =  drug_list.to_numpy()
         self.cell_list = cell_list.to_numpy()
 
-        score_name = 'label'
-        score_name_drop = 'synergy_loewe'
+        if model_type == 'reg':
+            score_name = 'synergy_loewe'
+        else :
+            score_name = 'label'
+        
+        
         self.labels = data[score_name]
-        data = data.drop(columns=score_name)
-        data = data.drop(columns=score_name_drop)
-        data = data.drop(columns='Unnamed: 0')
+        # data = data.drop(columns=score_name)
+        # data = data.drop(columns=score_name_drop)
+        # data = data.drop(columns='Unnamed: 0')
+        keep_cols = ["drug_row", "drug_col", "DepMap_ID"]
+        data = data[keep_cols]
         data = np.array(data)
         self.inputs = data
         self.transforms = transforms
@@ -82,9 +88,9 @@ class DrugCombDataset(Dataset):
     def __getitem__(self, index):
         labels = self.labels[index]
         inputs_np = self.inputs[index]
-        inputs_np = inputs_np.to_numpy()
-        drug_features= self.drug_list[inputs_np]
-        cell_features = self.drug_list[inputs_np]
+        drug_features= self.drug_list[inputs_np[:-1]]
+        print(drug_features)
+        cell_features = self.drug_list[inputs_np[-1]]
         # inputs_tensor = torch.from_numpy(inputs_np).float()
         return drug_features,cell_features,labels
     

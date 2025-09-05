@@ -86,12 +86,12 @@ def train_genegraph(args,repeat,fold):
     random_seed = args.seed
     setup_seed(random_seed)
     dev = torch.device(args.dev if torch.cuda.is_available() else 'cpu')
-    data_path = f'/root/myproject/GeneGraph/data/DrugComb/Process/reg/data'
+    data_path = f'/root/myproject/GeneGraph/data/DrugComb/Process/{args.model_type}/data'
 
 
 
     # hyprparm
-    local_out =f"/root/myproject/GeneGraph/result/{args.model_type}/Combine_repeat{repeat}_fold{fold}"
+    local_out =f"/root/myproject/GeneGraph/result/Combine/{args.model_type}/Combine_repeat{repeat}_fold{fold}"
     n_epochs = args.n_epochs
     n_latent = args.n_latent
     split_type = args.split_data_type
@@ -118,11 +118,11 @@ def train_genegraph(args,repeat,fold):
 
 
 
-    train = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_train.csv"))
+    train = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_train.csv"), model_type=args.model_type)
 
-    valid = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_val.csv"))
+    valid = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_val.csv"), model_type=args.model_type)
 
-    test = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_test.csv"))
+    test = DrugCombDataset( os.path.join(data_path,f"repeat{repeat}_fold{fold}_test.csv"), model_type=args.model_type)
 
     train_loader = torch.utils.data.DataLoader(dataset=train, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4, worker_init_fn=seed_worker)
     valid_loader = torch.utils.data.DataLoader(dataset=valid, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4, worker_init_fn=seed_worker)
@@ -133,38 +133,39 @@ def train_genegraph(args,repeat,fold):
 
 
     model = TranSiGen(n_genes=978, n_latent=n_latent, n_en_hidden=[1200], n_de_hidden=[800],
-                                    features_dim=2048, features_embed_dim=[400],
+                                    features_dim=2048, features_embed_dim=[400], n_pre_hidden=[ 512, 256, 128],
                                     init_w=True, beta=beta, device=dev, dropout=dropout,
                                     path_model=local_out, random_seed=random_seed)
     
-    old_model = torch.load('best_model.pt')
+    old_model = torch.load('/root/myproject/TranSiGen-main/results/trained_models_43_cell_random_split/364039/feature_ECFP4_init_pretrain_shRNA/best_model.pt')
     old_state = old_model.state_dict()
     model.load_state_dict(old_state, strict=False)
     ## load_state
 
 
-    engine_model = TranSiGen_engine(model=model,device=dev)
+    engine_model = TranSiGen_engine(model=model,device=dev,model_type=args.model_type)
 
     ## trainning
     learning_rate = args.learning_rate
     optimizer = torch.optim.Adam( model.parameters(),lr = learning_rate,
         weight_decay=weight_decay
         )
-    loss_item = ['loss', 'mse_x1', 'mse_x2', 'mse_pert',"adj_loss"]
+    loss_item = ['loss', 'pred_loss', 'kl_x2']
 
     best_value = np.inf
     best_epoch = 0
     for epoch in range(n_epochs):
         log = engine_model.train_epoch(train_loader, optimizer,epoch)
-        train_dict, train_metrics_dict, train_metricsdict_ls =engine_model.test(train_loader, , loss_item, epoch)
-        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader, , loss_item, epoch)
+        train_dict, train_metrics_dict, train_metricsdict_ls =engine_model.test(train_loader , loss_item, epoch)
+        test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(valid_loader , loss_item, epoch)
        
         
          
         test_loss = test_dict['loss']
         
     
-        r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
+        # r_str = f"Epoch {epoch+1}/{n_epochs}: Train: loss={train_dict['loss']:.4f}, mse_x1={train_dict['mse_x1']:.4f}, mse_x2={train_dict['mse_x2']:.4f}, mse_pert={train_dict['mse_pert']:.4f}, adj_loss={train_dict['adj_loss']:.4f}   Valid: loss={test_dict['loss']:.4f}, mse_x1={test_dict['mse_x1']:.4f}, mse_x2={test_dict['mse_x2']:.4f}, mse_pert={test_dict['mse_pert']:.4f}, adj_loss={test_dict['adj_loss']:.4f} "
+        r_str = format_metrics(epoch ,n_epochs, train_dict, test_dict )
 
         print(r_str)
         log_file_path = os.path.join(local_out,"train_log.txt")
@@ -180,7 +181,7 @@ def train_genegraph(args,repeat,fold):
     
 
     ## evaling
-    test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, adj_torch, loss_item,epoch=500)
+    test_dict, test_metrics_dict, test_metricsdict_ls =engine_model.test(test_loader, loss_item,epoch=500)
 
     
 

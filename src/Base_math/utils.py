@@ -445,3 +445,19 @@ def split(data, repeat):
         data_train.to_csv(path_train)
         data_val.to_csv(path_val)
         data_test.to_csv(path_test)
+
+
+def format_metrics(epoch, n_epochs, train_dict, test_dict):
+    def format_dict(d):
+        parts = []
+        for k, v in d.items():
+            if isinstance(v, float):
+                parts.append(f"{k}={v:.4f}")
+            else:
+                parts.append(f"{k}={v}")
+        return ", ".join(parts)
+
+    train_str = format_dict(train_dict)
+    test_str = format_dict(test_dict)
+
+    return f"Epoch {epoch+1}/{n_epochs}: Train: {train_str}   Valid: {test_str}"

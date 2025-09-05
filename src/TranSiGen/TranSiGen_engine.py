@@ -1,3 +1,4 @@
+from cProfile import label
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
@@ -9,44 +10,46 @@ import math
 
 
 class TranSiGen_engine:
-    def __init__(self, model, device='cpu'):
+    def __init__(self, model, device='cpu',model_type='reg'):
         self.model = model.to(device)
         self.dev = device
+        self.model_type = model_type
 
-    def loss_VIB(self, x1_train, x1_rec, x2_train, x2_rec, x2_pred, pred_adj, ori_adj, x1_mu, x1_std, x2_mu, x2_std, mu, std ,epoch ):
+    def loss_reg(self, pred_label,  mu_pred, logvar_pred ):
+
+
+        kld_pert = -0.5 * torch.sum(1. + logvar_pred - mu_pred.pow(2) - logvar_pred.exp(), )
+
+        return 
+    def loss_cls(self, pred_label,  mu_pred, logvar_pred ):
 
         loss_type ="sum"
-        mse_x1 = F.mse_loss(x1_rec, x1_train, reduction=loss_type)
-        mse_x2 = F.mse_loss(x2_rec, x2_train, reduction=loss_type)
-        mse_pert = F.mse_loss(x2_pred - x1_train, x2_train - x1_train, reduction=loss_type)
-        x1_KL_loss = -0.5 * (1 + 2 * x1_std.log() - x1_mu.pow(2) - x1_std.pow(2)).sum(1).mean().div(math.log(2))
-        x2_KL_loss = -0.5 * (1 + 2 * x2_std.log() - x2_mu.pow(2) - x2_std.pow(2)).sum(1).mean().div(math.log(2))
-        KL_loss = -0.5 * (1 + 2 * std.log() - mu.pow(2) - std.pow(2)).sum(1).mean().div(math.log(2))
-        return mse_x1 + mse_x2 +  mse_pert + x1_KL_loss+ x2_KL_loss + KL_loss,  \
-                mse_x1, mse_x2, mse_pert , x1_KL_loss, x2_KL_loss,KL_loss
+
+        kld_pert = -0.5 * torch.sum(1. + logvar_pred - mu_pred.pow(2) - logvar_pred.exp(), )
+
+        return 
 
 
 
-    def train_epoch(self, train_loader,optimizer, adj, epoch,share_encoder = True):
+    def train_epoch(self, train_loader,optimizer, epoch,share_encoder = True):
         self.model.train()
         total_loss = 0
         train_size = 0
-        for x1_train, features in tqdm(train_loader):
+        for drug_feautres,cell_features,label in tqdm(train_loader):
             # 假设 batch = (drug_fp, gene_idx, labels)
-            x1_train = x1_train.to(self.dev)
-            x2_train = x2_train.to(self.dev)
-            features = features.to(self.dev)
-            if x1_train.shape[0] == 1:
-                    continue
-            train_size += x1_train.shape[0]
+            
+            drug_feautres = drug_feautres.to(self.dev)
+            cell_features = cell_features.to(self.dev)
+            label = label.to(self.dev)
+            train_size += label.shape[0]
             optimizer.zero_grad()
-            x1_rec,x2_rec, x2_pred, combine_adj, (x1_mu,x1_std), (x2_mu,x2_std),(mu,std) = self.model(x1_train, features,adj,x2_train)  # forward
-            assert not torch.isnan(x1_train).any(), "x1_train contains NaN"
-            assert not torch.isnan(x1_rec).any(), "x1_rec contains NaN"
-            assert not torch.isnan(x2_train).any(), "x2_train contains NaN"
-            assert not torch.isnan(x2_rec).any(), "x2_rec contains NaN"
+            result, x2_pred , mu_pred, logvar_pred, z2_pred = self.model(cell_features, drug_feautres)  # forward
             assert not torch.isnan(x2_pred).any(), "x2_pred contains NaN"
-            loss,_1, _2, _3, _4, _5, _6  = self.loss_VIB(x1_train, x1_rec, x2_train, x2_rec, x2_pred, combine_adj, adj, x1_mu, x1_std, x2_mu, x2_std, mu, std, epoch)
+            if self.model_type == 'reg' :
+                loss,_1, _2, _3, _4, _5, _6  = self.loss_reg(result, mu_pred, logvar_pred)
+            else :
+                loss,_1, _2, _3, _4, _5, _6  = self.loss_cls(result, mu_pred, logvar_pred)
+            
             # print(loss,_1,_2,_3,_4)
             loss.backward()
             optimizer.step()
@@ -56,7 +59,7 @@ class TranSiGen_engine:
     
 
     @torch.no_grad()
-    def test(self, test_loader, adj, loss_item, epoch, metrics_func=None,share_encoder=True):
+    def test(self, test_loader, loss_item, epoch, metrics_func=None,share_encoder=True):
         test_dict = defaultdict(float)
         metrics_dict_all = defaultdict(float)
         metrics_dict_all_ls = defaultdict(list)
@@ -65,24 +68,16 @@ class TranSiGen_engine:
         total_loss = 0
         test_size = 0
         all_scores, all_labels = [], []
-        for x1_data, x2_data, features, mol_id, cid, sig in test_loader:
-            x1_train = x1_data.to(self.dev)
-            x2_train = x2_data.to(self.dev)
-            features = features.to(self.dev)
-            cid = np.array(list(cid))
-            sig = np.array(list(sig))
-            test_size += x1_data.shape[0]
+        for drug_feautres,cell_features,label in tqdm(test_loader):
+            # 假设 batch = (drug_fp, gene_idx, labels)
+            drug_feautres = drug_feautres.to(self.dev)
+            cell_features = cell_features.to(self.dev)
+            label = label.to(self.dev)
+            test_size += label.shape[0]
 
-            x1_rec,x2_rec,  x2_pred, combine_adj, (x1_mu,x1_std), (x2_mu,x2_std),(mu,std) = self.model(x1_train, features,adj, x2_train)  # forward
-            # if share_encoder:
+            result, x2_pred , mu_pred, logvar_pred, z2_pred = self.model(cell_features, drug_feautres) # forward
 
-            #     x2_mid = self.model.Encoder_x1(x2_train)
-            #     x2_rec = self.model.Decoder_x2(x2_mid)
-            # else :
-            #     x2_mid = self.model.Encoder_x2(x2_train)
-            #     x2_rec = self.model.Decoder_x2(x2_mid)
-            # loss_ls= self.loss(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, node_features, epoch)
-            loss_ls = self.loss_VIB(x1_train,x1_rec,x2_train,x2_rec,x2_pred,combine_adj, adj, x1_mu, x1_std, x2_mu, x2_std, mu, std , epoch)
+            loss_ls = self.loss_rec(result, mu_pred, logvar_pred)
             if loss_item != None:
                     for idx, k in enumerate(loss_item):
                         test_dict[k] += loss_ls[idx].item()
