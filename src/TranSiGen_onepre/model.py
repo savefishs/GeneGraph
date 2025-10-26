@@ -9,14 +9,13 @@ from Base_math.utils import *
 
 
 class TranSiGen(torch.nn.Module):
-    def __init__(self, n_genes, n_latent, n_en_hidden, n_de_hidden, features_dim, features_embed_dim,n_pre_hidden, **kwargs):
+    def __init__(self, n_genes, n_latent, n_en_hidden, n_de_hidden, features_dim, features_embed_dim, **kwargs):
         """ Constructor for class TranSiGen """
         super(TranSiGen, self).__init__()
         self.n_genes = n_genes
         self.n_latent = n_latent
         self.n_en_hidden = n_en_hidden
         self.n_de_hidden = n_de_hidden
-        self.n_pre_hidden = n_pre_hidden
         self.features_dim = features_dim
         self.feat_embed_dim = features_embed_dim
         self.init_w = kwargs.get('init_w', False)
@@ -105,30 +104,6 @@ class TranSiGen(torch.nn.Module):
             self.mu_z2Fz1 = nn.Sequential(nn.Linear(self.n_latent + self.feat_embed_dim[-1], self.n_latent),)
             self.logvar_z2Fz1 = nn.Sequential(nn.Linear(self.n_latent + self.feat_embed_dim[-1], self.n_latent),)
 
-        combine_embeddings = [
-                nn.Linear(self.feat_embed_dim[-1]*2, self.feat_embed_dim[0]),
-                                nn.BatchNorm1d(self.feat_embed_dim[0]),
-                                nn.ReLU(),
-                                nn.Dropout(self.dropout)
-            ]
-        self.combine_embeddings = nn.Sequential(*combine_embeddings)
-
-        predicter = [
-                            nn.Linear(self.n_genes, self.n_pre_hidden[0]),
-                            nn.BatchNorm1d(self.n_pre_hidden[0]),
-                            nn.ReLU(),
-                            nn.Dropout(self.dropout)
-                            ]
-        if len(self.n_pre_hidden) > 1:
-            for i in range(len(self.n_pre_hidden)-1):
-                predicter_hidden = [
-                    nn.Linear(self.n_pre_hidden[i], self.n_pre_hidden[i+1]),
-                    nn.BatchNorm1d(self.n_pre_hidden[i+1]),
-                    nn.ReLU(),
-                    nn.Dropout(self.dropout)
-                ]
-                predicter = predicter + predicter_hidden
-        self.predicter = nn.Sequential(*predicter)
 
         if self.init_w:
             self.encoder_x1.apply(self._init_weights)
@@ -186,15 +161,10 @@ class TranSiGen(torch.nn.Module):
     def forward(self, x1, features):
         """ Forward pass through full network"""
         z1, mu1, logvar1 = self.encode_x1(x1)
-        # x1_rec = self.decode_x1(z1)
+        x1_rec = self.decode_x1(z1)
 
         if self.feat_embed_dim != None:
-            feature_1 = features[:,0]
-            feature_2 = features[:,1]
-            feat_embed1 = self.feat_embeddings(feature_1)
-            feat_embed2 = self.feat_embeddings(feature_2)
-            combine_embedding = torch.concat([feat_embed1,feat_embed2],dim=-1)
-            feat_embed = self.combine_embeddings(combine_embedding)
+            feat_embed = self.feat_embeddings(features)
         else:
             feat_embed = features
         z1_feat = torch.cat([z1, feat_embed], 1)
@@ -202,9 +172,7 @@ class TranSiGen(torch.nn.Module):
         z2_pred = self.sample_latent(mu_pred, logvar_pred)
         x2_pred = self.decode_x2(z2_pred)
 
-        result = self.predicter(x2_pred)
-
-        return result, x2_pred, mu_pred, logvar_pred, z2_pred
+        return x1_rec, mu1, logvar1, x2_pred, mu_pred, logvar_pred, z2_pred
 
 
     def loss(self, x1_train, x1_rec, mu1, logvar1, x2_train, x2_rec, mu2, logvar2, x2_pred, mu_pred, logvar_pred):

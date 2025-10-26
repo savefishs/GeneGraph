@@ -1,10 +1,13 @@
 from doctest import Example
 from locale import DAY_1
+from operator import index
 import numpy
 from torch.utils.data import Dataset
 import pickle
-from .utils import *
 
+from torch.utils.data.dataset import ConcatDataset
+from .utils import *
+import scipy.sparse as sp
 
 class GeneGraphDataset(Dataset):
 
@@ -96,6 +99,126 @@ class DrugCombDataset(Dataset):
     
     def __len__(self):
         return len(self.labels.index)
+
+class OneDrugPretrain(Dataset):
+    def __init__(self, csv_path,model_type):
+        cell_base = '../data/mydataset/M1_lincs_wth_ccle_org_all.csv'
+        drug_cid = '../data/mydataset/M1_lb_drug_to_smiles_cid.csv'
+        drug_feature = '../data/mydataset/L1000_ecfp4.npz'
+        drug_pert_profile = '../data/mydataset/pretrain_data_pert.csv'
+        self.cell_list = pd.read_csv(cell_base)
+
+        drug_list = pd.read_csv(drug_cid,sep='\t')
+        feat_list = sp.load_npz(drug_feature)
+        self.drug_pert = pd.read_csv(drug_pert_profile)
+        drug_feat_list = pd.DataFrame(feat_list.toarray())
+        self.drug_data = pd.concat([drug_list, drug_feat_list], axis=1)
+        self.pert_to_feat = {
+            row["pert_id"]: row[drug_feat_list.columns].values.astype(float)
+            for _, row in self.drug_data.iterrows()
+                }
+        cell_set = set(self.cell_list['cell_iname'].unique())
+        self.drug_pert = self.drug_pert[self.drug_pert['cell_mfc_name'].isin(cell_set)]
+        if model_type == "pretrain" : 
+            self.drug_pert = self.drug_pert[
+                    (self.drug_pert["pert_idose"] == "10 uM") &
+                    (self.drug_pert["pert_itime"] == "24 h")
+                ].reset_index(drop=True)
+
     
+    def __getitem__(self, index) :
+        pert_row = self.drug_pert.iloc[index]
     
+        pert_id = pert_row["pert_id"]
+        cell_id  = pert_row['cell_mfc_name']
+        # print(pert_id,cell_id)
+        cell_row = self.cell_list[self.cell_list['cell_iname'] == cell_id].iloc[0]
+        # 这里 cell_row 是一个 Series，可以选择返回整个 row 或者部分列
+        # 比如只返回 gene expression 值：
+        cell_expr = cell_row.drop(['Unnamed: 0','cell_iname']).values.astype(float)
+        cell_expr = torch.tensor(cell_expr, dtype=torch.float32)
+
+        pert_profile = pert_row.drop(["Unnamed: 0","sig_id", "pert_id", "cell_mfc_name", "pert_type", "pert_idose", "pert_itime"]).values.astype(float)
+        mol_feat = torch.tensor(self.pert_to_feat[pert_id], dtype=torch.float32)
+
+        pert_profile = torch.tensor(pert_profile,dtype =torch.float32)
+        # print(cell_expr.shape)
+        # print(cell_expr)
+        return cell_expr, pert_profile, mol_feat
     
+    def __len__(self):
+        return len(self.drug_pert)
+    
+
+class DrugCombtraining(Dataset):
+    def __init__(self,spilt ="train"):
+        self.spilt = spilt
+
+        cell_base = '../data/mydataset/M1_lincs_wth_ccle_org_all.csv'
+        cell_turn = "../data/mydataset/M1_ccle_lincs_convert.csv"
+        drug_cid = '../data/mydataset/M2_cid_smiles.csv'
+        drug_feature = '../data/mydataset/M2_ecfp4.npz'
+        drug_Comb = '../data/mydataset/M2_final_dataset.csv'
+        drug_syn = '../data/mydataset/M2_SYN.pt'
+
+        self.cell_list = pd.read_csv(cell_base)
+        cell_turn = pd.read_csv(cell_turn)
+        drug_list = pd.read_csv(drug_cid,sep=',')
+        feat_list = sp.load_npz(drug_feature)
+        drug_pert_full = pd.read_csv(drug_Comb,sep='\t')
+        drug_feat_list = pd.DataFrame(feat_list.toarray())
+        syn_ans_full = torch.load(drug_syn)
+
+
+
+
+        mask = drug_pert_full.SPLIT == self.spilt
+        self.drug_pert = drug_pert_full[mask]
+        self.syn_ans = syn_ans_full[mask.values]  # 同步筛选 label
+
+        split_cols = self.drug_pert['cid_cid_cell'].str.split('___', expand=True)
+        # print(split_cols.head())
+        self.drug_pert['pert_iname_A'] = split_cols.iloc[:, 0]
+        self.drug_pert['pert_iname_B'] = split_cols.iloc[:, 1]
+        self.drug_pert['cell_iname'] = split_cols.iloc[:, 2]
+
+        self.drug_data = pd.concat([drug_list, drug_feat_list], axis=1)
+        feat_cols = drug_feat_list.columns  # 0,1,2,...这些是 ECFP4 特征列
+
+        # 用 CID 作为 key
+        self.pert_to_feat = {
+            str(row["CID"]): row[feat_cols].values.astype(float)
+            for _, row in self.drug_data.iterrows()
+        }
+ 
+        cell_turn['ccle_name'] = cell_turn['ccle_name'].str.strip().str.upper()
+        cell_turn['cell_iname'] = cell_turn['cell_iname'].str.strip().str.upper()
+        self.cell_list['cell_iname'] = self.cell_list['cell_iname'].str.strip().str.upper()
+        # 2. 建立映射字典
+        ccle_to_cell = dict(zip(cell_turn['ccle_name'], cell_turn['cell_iname']))
+        # 3. 用映射替换 drug_pert['cell_iname']
+        self.drug_pert['cell_iname'] = self.drug_pert['cell_iname'].str.strip().str.upper().map(ccle_to_cell)
+
+
+    def __len__(self):
+        return len(self.drug_pert)
+    
+    def __getitem__(self, index):
+        row = self.drug_pert.iloc[index]
+        cell_name = row['cell_iname']
+        # print(cell_name)
+        # row_values = self.cell_list[self.cell_list.cell_iname==cell_name].iloc[0, 2:]
+   
+        cell_row = self.cell_list[self.cell_list['cell_iname'] == cell_name].iloc[0]
+        cell_expr = cell_row.drop(['Unnamed: 0', 'cell_iname']).values.astype(float)
+        cell_base = torch.tensor(cell_expr, dtype=torch.float32)
+
+        pert_A = row['pert_iname_A']
+        pert_B = row['pert_iname_B']
+        features_A = torch.tensor(self.pert_to_feat[pert_A], dtype=torch.float32)
+        features_B = torch.tensor(self.pert_to_feat[pert_B], dtype=torch.float32)
+
+        label = torch.tensor(self.syn_ans[index], dtype=torch.float32)
+        # print(cell_base.shape,label.shape,)
+        return cell_base, features_A, features_B, label
+        
