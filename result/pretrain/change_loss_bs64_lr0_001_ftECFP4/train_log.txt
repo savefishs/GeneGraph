@@ -1,0 +1,1 @@
+Best model :loss=9583.2129, mse_x1=6.2852, mse_x2=4438.9591, mse_pert=5047.7481, kld_x1=148.3350, kld_x2=220.5761, kld_pert=533.2917

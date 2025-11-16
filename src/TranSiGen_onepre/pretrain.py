@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument("--data_path", type=str,default='../data/LINCS2020/data_example/processed_data_id.h5')
     parser.add_argument("--save_path", type=str,default='../result/pretrain/')
     parser.add_argument("--molecule_path", type=str)
-    parser.add_argument("--save_model",type=bool,default=True)
+    parser.add_argument("--save_model",type=bool,default=False)
     parser.add_argument("--dev", type=str, default='cuda:0')
     parser.add_argument("--seed", type=int, default=364039)
     parser.add_argument("--molecule_feature", type=str, default='ECFP4', help='molecule_feature(KPGT, ECFP4)')

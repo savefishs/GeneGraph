@@ -58,7 +58,7 @@ def train_genegraph(args):
 
     #training  hyprparm
     subdir_name = f"{args.model_type}_bs{args.batch_size}_lr{str(args.learning_rate).replace('.', '_')}_ft{args.molecule_feature}"
-    local_out =os.path.join("/root/myproject/GeneGraph/result/Combine",subdir_name)
+    local_out =os.path.join("../result/Combine",subdir_name)
     if not os.path.exists(local_out):
         os.makedirs(local_out)
     log_file_path = os.path.join(local_out, 'train_log.txt')
@@ -118,7 +118,7 @@ def train_genegraph(args):
                         path_model=local_out, random_seed=random_seed)
     model_dict = model.state_dict()
 
-    pretrained_path = '/root/myproject/GeneGraph/result/pretrain/norm_bs64_lr0_001_ftECFP4/best_model.pt'
+    pretrained_path = '../result/pretrain/norm_bs64_lr0_001_ftECFP4/best_model.pt'
     pretrained_model = torch.load(pretrained_path, map_location='cpu')
     pretrained_dict = pretrained_model.state_dict()
     model_dict = model.state_dict()

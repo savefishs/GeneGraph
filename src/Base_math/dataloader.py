@@ -9,6 +9,8 @@ from torch.utils.data.dataset import ConcatDataset
 from .utils import *
 import scipy.sparse as sp
 
+
+## drop
 class GeneGraphDataset(Dataset):
 
     def __init__(self, LINCS_index, mol_feature_type, mol_id, cid):
@@ -62,8 +64,8 @@ class GeneGraphDataset_screening(Dataset):
 class DrugCombDataset(Dataset):
     def __init__(self, csv_path, transforms=None,model_type = 'reg'):
         print(csv_path)
-        drug_path ="/root/myproject/GeneGraph/data/DrugComb/Process/reg/Drug_use.csv"
-        cell_path = "/root/myproject/GeneGraph/data/DrugComb/Process/reg/Cell_use.csv"
+        drug_path ="../data/DrugComb/Process/reg/Drug_use.csv"
+        cell_path = "../data/DrugComb/Process/reg/Cell_use.csv"
         data = pd.read_csv(csv_path)
         # self.example_list = pd.read_csv(csv_path)
         drug_list =  pd.read_csv(drug_path)
@@ -100,12 +102,15 @@ class DrugCombDataset(Dataset):
     def __len__(self):
         return len(self.labels.index)
 
+
+
+## now using 
 class OneDrugPretrain(Dataset):
     def __init__(self, csv_path,model_type):
-        cell_base = '../data/mydataset/M1_lincs_wth_ccle_org_all.csv'
-        drug_cid = '../data/mydataset/M1_lb_drug_to_smiles_cid.csv'
-        drug_feature = '../data/mydataset/L1000_ecfp4.npz'
-        drug_pert_profile = '../data/mydataset/pretrain_data_pert.csv'
+        cell_base = '../data/dataprocess/M1_lincs_wth_ccle_org_all.csv'
+        drug_cid = '../data/dataprocess/M1_lb_drug_to_smiles_cid.csv'
+        drug_feature = '../data/dataprocess/L1000_ecfp4.npz'
+        drug_pert_profile = '../data/dataprocess/pretrain_data_pert.csv'
         self.cell_list = pd.read_csv(cell_base)
 
         drug_list = pd.read_csv(drug_cid,sep='\t')
@@ -124,7 +129,7 @@ class OneDrugPretrain(Dataset):
                     (self.drug_pert["pert_idose"] == "10 uM") &
                     (self.drug_pert["pert_itime"] == "24 h")
                 ].reset_index(drop=True)
-
+        print(self.__len__())
     
     def __getitem__(self, index) :
         pert_row = self.drug_pert.iloc[index]
