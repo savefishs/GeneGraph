@@ -92,7 +92,7 @@ def train_genegraph(args):
 
     #training  hyprparm
     subdir_name = f"{args.model_type}_bs{args.batch_size}_lr{str(args.learning_rate).replace('.', '_')}_ft{args.molecule_feature}"
-    local_out =os.path.join("/root/myproject/GeneGraph/result/pretrain",subdir_name)
+    local_out =os.path.join("../result/pretrain",subdir_name)
     if not os.path.exists(local_out):
         os.makedirs(local_out)
     log_file_path = os.path.join(local_out, 'train_log.txt')
@@ -160,13 +160,13 @@ def train_genegraph(args):
 
     if init_mode == 'pretrain_shRNA':
         print('=====load vae for x1 and x2=======')
-        filename = '/root/myproject/TranSiGen-main/results/trained_model_shRNA_vae_x1/best_model.pt'
+        filename = '../results/trained_model_shRNA_vae_x1/best_model.pt'
         model_base_x1 = torch.load(filename, map_location='cpu')
         model_base_x1_dict = model_base_x1.state_dict()
         for k in model_dict.keys():
             if k in model_base_x1_dict.keys():
                 model_dict[k] = model_base_x1_dict[k]
-        filename = '/root/myproject/TranSiGen-main/results/trained_model_shRNA_vae_x2/best_model.pt'
+        filename = '../results/trained_model_shRNA_vae_x2/best_model.pt'
         model_base_x2 = torch.load(filename, map_location='cpu')
         model_base_x2_dict = model_base_x2.state_dict()
         for k in model_dict.keys():
